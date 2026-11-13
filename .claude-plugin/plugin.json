@@ -1,0 +1,7 @@
+{
+  "name": "product-advisor",
+  "description": "Advises on pricing, willingness to pay, PMF, GTM, packaging, and sales, and grounds advice in reference material and the team's own product records.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": { "name": "arinyaho" }
+}

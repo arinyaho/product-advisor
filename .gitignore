@@ -1,0 +1,6 @@
+*.pdf
+__pycache__/
+*.npy
+*.npz
+.env
+data/

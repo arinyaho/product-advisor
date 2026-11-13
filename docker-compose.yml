@@ -1,0 +1,10 @@
+services:
+  product-advisor:
+    build: ./mcp
+    restart: unless-stopped
+    user: "${PUID:-1026}:${PGID:-100}"  # Synology's first user and the users group; match the owner of ./data
+    env_file: .env                      # OPENROUTER_API_KEY
+    volumes:
+      - ./data:/data                    # book.pdf, keys.json, cached vectors
+    ports:
+      - "127.0.0.1:${PORT:-8765}:8000"  # reachable only through the DSM reverse proxy
