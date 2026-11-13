@@ -1,6 +1,6 @@
 # product-advisor
 
-A Claude Code plugin that advises a product team whenever a conversation turns to pricing, willingness to pay, product-market fit, go-to-market, packaging, or sales. A skill maps the situation to established frameworks and tells Claude when to look things up; an MCP server on one Docker host (a Synology NAS here) searches and reads the reference material for anyone holding a key.
+A Claude Code plugin that advises a product team whenever a conversation turns to pricing, willingness to pay, product-market fit, go-to-market, packaging, or sales. A skill maps the situation to established frameworks and tells Claude when to look things up; an MCP server on one Docker host searches and reads the reference material for anyone holding a key.
 
 The repository holds no reference text. The PDFs, the key store, and the caches live only in the server's `data/` directory.
 
@@ -16,26 +16,26 @@ The server keeps no team data and no queries; customer, deal, and hypothesis rec
 
 ## Quick start
 
-Deploy from any machine that can ssh into the NAS, with the reference PDF and an OpenRouter key made for this server:
+Deploy from any machine that can ssh into a Docker host, with the reference PDF and an OpenRouter key made for this server:
 
 ```sh
-OPENROUTER_API_KEY=<key> scripts/nas.sh admin@nas.local deploy path/to/reference.pdf
+OPENROUTER_API_KEY=<key> scripts/deploy.sh user@host deploy path/to/reference.pdf
 ```
 
-The script copies the server and the PDF, builds and starts the container, waits until the server is ready (about three minutes the first time), and prints a `full` key for you. Publish `127.0.0.1:8765` on the NAS through DSM's reverse proxy over HTTPS.
+The script copies the server and the PDF, builds and starts the container, waits until the server is ready (about three minutes the first time), and prints a `full` key for you. Publish `127.0.0.1:8765` on the host through a reverse proxy that terminates HTTPS.
 
 [docs/deployment.md](docs/deployment.md) covers prerequisites, the reverse proxy, and troubleshooting.
 
 ## Keys
 
-Each person gets their own key. Run these from a clone of this repository on a machine that can ssh into the NAS; the script asks for the NAS administrator's sudo password.
+Each person gets their own key. Run these from a clone of this repository on a machine that can ssh into the host.
 
 ```sh
-scripts/nas.sh admin@nas.local issue-key alice --days 30                # excerpt scope, the default
-scripts/nas.sh admin@nas.local issue-key bob --days 365 --scope full    # whole pages and sections
-scripts/nas.sh admin@nas.local renew-key alice --days 30
-scripts/nas.sh admin@nas.local revoke-key alice
-scripts/nas.sh admin@nas.local list-keys
+scripts/deploy.sh user@host issue-key alice --days 30                # excerpt scope, the default
+scripts/deploy.sh user@host issue-key bob --days 365 --scope full    # whole pages and sections
+scripts/deploy.sh user@host renew-key alice --days 30
+scripts/deploy.sh user@host revoke-key alice
+scripts/deploy.sh user@host list-keys
 ```
 
 `issue-key` prints the key once; the server stores only its hash. Issuing a key for an existing name replaces that person's key. Send the key to the person over a private channel, such as a direct message, never in a shared channel or a repository. Changes apply on the next request, with no restart.
@@ -94,7 +94,7 @@ Each user needs read access to this repository, the server's URL (`https://<host
 | Document | Content |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Components, indexing and search data flow, tools, access control and threats, failure handling, caches, design decisions |
-| [docs/deployment.md](docs/deployment.md) | Deploying to a Synology NAS, reverse proxy, keys, operations |
+| [docs/deployment.md](docs/deployment.md) | Deploying to a Docker host, reverse proxy, keys, operations |
 | [docs/experiments.md](docs/experiments.md) | The experiments behind the design and the evaluation methods |
 | [eval/README.md](eval/README.md) | Running the evaluations and comparing a change |
 
