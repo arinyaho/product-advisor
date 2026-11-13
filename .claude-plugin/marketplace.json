@@ -1,0 +1,7 @@
+{
+  "name": "product-advisor",
+  "owner": { "name": "arinyaho" },
+  "plugins": [
+    { "name": "product-advisor", "source": "./", "description": "Pricing, WTP, PMF, and GTM advice for product teams." }
+  ]
+}

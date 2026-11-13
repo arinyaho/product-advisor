@@ -1,0 +1,1892 @@
+[
+ {
+  "q": 2,
+  "page": 34,
+  "score": 1,
+  "reason": "이 페이지는 질문자가 겪고 있는 '피처 쇼크(Feature Shock)' 현상과 그 원인을 정확히 짚어내고 있지만, 구체적으로 어느 선에서 기능을 멈춰야 하는지에 대한 실행 방법은 담고 있지 않습니다."
+ },
+ {
+  "q": 22,
+  "page": 48,
+  "score": 1,
+  "reason": "이 페이지는 개발 초기 단계에서 고객 피드백을 반영하는 것의 중요성을 강조하지만, 구체적으로 어떤 고객에게 물어보고 어떤 부분을 다듬어야 하는지에 대한 직접적인 답변은 제공하지 않습니다."
+ },
+ {
+  "q": 12,
+  "page": 111,
+  "score": 2,
+  "reason": "이 페이지는 사용량에 따른 요금 차등 설계를 위해 '사용량 기반(volume-based)' 및 '매트릭스(matrix/tier-based)' 가격 구조를 도입해야 한다는 핵심적인 해결책을 직접적으로 제시합니다."
+ },
+ {
+  "q": 23,
+  "page": 225,
+  "score": 1,
+  "reason": "The page is related as it explains how to implement the 'designing the product around the price' process by participating in early-stage R&D and forming cross-functional teams, but it does not explicitly mention the 'fuzzy front end' term."
+ },
+ {
+  "q": 12,
+  "page": 95,
+  "score": 1,
+  "reason": "The page introduces the importance of choosing the right monetization model but does not yet explain how to design a usage-based pricing structure."
+ },
+ {
+  "q": 18,
+  "page": 63,
+  "score": 1,
+  "reason": "신제품 가격 협상을 조기에 시작하라는 조언은 관련이 있으나, 할인 협상에서 최종 판매가를 높이기 위한 구체적인 가격 제시 및 앵커링 전략은 담겨 있지 않습니다."
+ },
+ {
+  "q": 13,
+  "page": 117,
+  "score": 1,
+  "reason": "이 페이지는 가격 탄력성 곡선을 통해 가격, 판매량, 수익 간의 관계를 정량화하여 최적의 가격을 도출하는 개념을 설명하지만, 구체적인 활용법은 다음 장으로 미루고 있어 부분적으로만 유용합니다."
+ },
+ {
+  "q": 22,
+  "page": 59,
+  "score": 1,
+  "reason": "내부 의견이 갈릴 때 지불 의향(WTP) 조사를 통해 우선순위를 정하는 방법은 제시하지만, 어떤 고객군에게 먼저 물어봐야 하는지에 대한 구체적인 답은 포함되어 있지 않아 부분적으로 유용합니다."
+ },
+ {
+  "q": 23,
+  "page": 193,
+  "score": 2,
+  "reason": "이 페이지는 혁신 프로세스의 초기 단계(front end)에서부터 수익화를 고민하고, 내부 관점이 아닌 고객의 실제 목소리에서 시작하도록 프로세스를 뒤집어야 한다는 해결책을 직접적으로 제시합니다."
+ },
+ {
+  "q": 19,
+  "page": 107,
+  "score": 0,
+  "reason": "The page discusses choosing and testing monetization models rather than explaining specific large-scale experiments or survey methods for setting price points under price transparency constraints."
+ },
+ {
+  "q": 17,
+  "page": 153,
+  "score": 2,
+  "reason": "The page directly addresses the question by presenting a case study that identifies psychological price thresholds and explains how giving too much value in a low-end offering (Basic) diminishes the appeal of premium offerings (Standard/Advanced)."
+ },
+ {
+  "q": 4,
+  "page": 57,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining the three key benefits of discussing willingness to pay (WTP) early in the product development process to avoid monetization failures and feature overload."
+ },
+ {
+  "q": 11,
+  "page": 201,
+  "score": 2,
+  "reason": "이 페이지는 우버의 사례를 통해 동적 가격 책정이 실시간 수요와 공급을 조절하여 고객(가용성 확보)과 공급자(수익 및 효율성 증대) 모두에게 이익을 주는 방식을 직접적으로 설명합니다."
+ },
+ {
+  "q": 19,
+  "page": 66,
+  "score": 2,
+  "reason": "이 페이지는 실시간 가격 테스트가 어려울 때 고객의 지불 의향(WTP)을 파악하기 위해 활용할 수 있는 5가지 설문 조사 방식(직접 질문, 구매 확률, 최선-최악, 직접 구성, 구매 시뮬레이션)을 직접적으로 제시하고 있습니다."
+ },
+ {
+  "q": 28,
+  "page": 128,
+  "score": 1,
+  "reason": "이 페이지는 여러 제품 간의 예산 배분을 직접 다루지는 않지만, 신제품 출시 전 직관에 의존하기보다 철저한 시장 조사와 WTP 검증을 거치는 것이 왜 중요한지 사례를 통해 보여줍니다."
+ },
+ {
+  "q": 3,
+  "page": 24,
+  "score": 1,
+  "reason": "이 페이지는 고객의 지불 의향을 반영한 가격 책정의 중요성을 강조하여 가치 기반 방식과 관련이 있으나, 원가 가산 방식과 가치 기반 방식의 구체적인 차이를 직접적으로 비교하여 설명하지는 않습니다."
+ },
+ {
+  "q": 5,
+  "page": 55,
+  "score": 1,
+  "reason": "인도 시장을 타깃으로 한 질레트 사례와 초기 가격 수용도(WTP) 분석의 중요성을 소개하고 있어 질문과 관련이 깊지만, 구체적인 기능 조정이나 가격 책정의 상세 내용은 다음 페이지로 이어집니다."
+ },
+ {
+  "q": 2,
+  "page": 82,
+  "score": 2,
+  "reason": "The page directly addresses the issue of feature creep and customer confusion, advising companies to limit features to what segments are willing to pay for and to have the guts to take away features to protect profitability."
+ },
+ {
+  "q": 12,
+  "page": 215,
+  "score": 1,
+  "reason": "이 페이지는 사용 패턴(수시 사용 vs. 상시 사용)에 따른 요금 부과 기준(메트릭) 고민과 단계별 요금제(Good/Better/Best) 도입 사례를 다루고 있어 요금 설계 방식에 부분적으로 참고할 수 있습니다."
+ },
+ {
+  "q": 24,
+  "page": 194,
+  "score": 2,
+  "reason": "이 페이지는 고객 피드백을 선제적으로 반영하는 CPM(고객 프로세스 모니터링) 검토 절차의 단계와, 이를 바탕으로 최고 경영진(top management)이 최종 의사결정을 내려야 함을 직접적으로 설명합니다."
+ },
+ {
+  "q": 25,
+  "page": 204,
+  "score": 1,
+  "reason": "The page discusses Uber's strategy to become an alternative to car ownership through segmentation, which is related to the question, but it does not directly address whether lowering prices would capture demand from cheaper alternatives like public transit or walking."
+ },
+ {
+  "q": 2,
+  "page": 13,
+  "score": 0,
+  "reason": "제공된 페이지 내용이 없어 질문에 대한 답변이나 유용한 정보를 찾을 수 없습니다."
+ },
+ {
+  "q": 4,
+  "page": 55,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining why discussing pricing and willingness-to-pay at the very beginning of product development is essential rather than waiting until the end."
+ },
+ {
+  "q": 1,
+  "page": 226,
+  "score": 1,
+  "reason": "The page explains how understanding customer value and willingness to pay (WTP) guides product design and configuration, but it does not address why revenue estimation is risky."
+ },
+ {
+  "q": 1,
+  "page": 127,
+  "score": 1,
+  "reason": "이 페이지는 고객의 지불 의향(WTP)을 먼저 파악하여 외부 지향적 비즈니스 케이스를 구축하고 제품 전략을 설계해야 한다는 점을 강조하지만, 전통적인 수익 추정이 왜 위험한지에 대한 구체적인 설명은 부족합니다."
+ },
+ {
+  "q": 13,
+  "page": 126,
+  "score": 1,
+  "reason": "The page mentions the importance of the price elasticity curve for finding the maximizing price point in its checklist, but it does not explain the actual methodology of how to use it to increase pricing power."
+ },
+ {
+  "q": 9,
+  "page": 156,
+  "score": 0,
+  "reason": "The page discusses general behavioral pricing tactics like the compromise effect and anchoring, but does not address bundle pricing communication or discount framing."
+ },
+ {
+  "q": 28,
+  "page": 225,
+  "score": 1,
+  "reason": "The page suggests focusing on a single representative product for a pilot to keep things simple and go deeper, which is conceptually related, but it does not directly explain why deep validation is superior to superficial checking for budget allocation."
+ },
+ {
+  "q": 26,
+  "page": 209,
+  "score": 2,
+  "reason": "이 페이지는 고객과 중간 판매점에게 긍정적인 브랜드 이미지를 유지하면서 소비자의 지불 의향을 지속적으로 파악하기 위해 가격 위원회와 전담 부서를 설치하고 조사를 지속해야 한다는 구체적인 해결책을 제시합니다."
+ },
+ {
+  "q": 25,
+  "page": 200,
+  "score": 1,
+  "reason": "The page mentions that Uber's customer demand is highly price-elastic, which is related to the question, but it focuses more on dynamic pricing and supply rather than specific transport alternatives."
+ },
+ {
+  "q": 21,
+  "page": 35,
+  "score": 1,
+  "reason": "The page identifies 'feature shock' (an unclear value proposition with too many features) as a key cause of low sales, but it defers the non-price solutions to a later chapter."
+ },
+ {
+  "q": 24,
+  "page": 20,
+  "score": 1,
+  "reason": "The page provides a real-world case study of Porsche using willingness-to-pay surveys mandated by top executives before development, which illustrates the concept but does not offer a generalized step-by-step framework for establishing this process."
+ },
+ {
+  "q": 5,
+  "page": 166,
+  "score": 0,
+  "reason": "이 페이지는 프리미엄 제품(애플워치)의 가격 고수 전략과 가격 일관성에 대해 다루고 있어, 신흥시장이나 가격 민감 시장에서의 가격 책정 및 기능 조정 방안에 대한 질문에는 도움이 되지 않습니다."
+ },
+ {
+  "q": 23,
+  "page": 192,
+  "score": 1,
+  "reason": "이 페이지는 기존 'fuzzy front end' 프로세스의 문제점과 폐해를 상세히 지적하고 있어 관련이 깊지만, 이를 어떻게 구체적으로 개선해야 하는지에 대한 해결책은 직접적으로 제시하지 않습니다."
+ },
+ {
+  "q": 5,
+  "page": 56,
+  "score": 2,
+  "reason": "인도 시장에서 고객이 지불할 용의가 있는 가격을 먼저 정하고, 필수 기능만 남겨 부품을 대폭 줄임으로써 점유율을 높인 질레트의 구체적인 사례와 방법을 직접적으로 제시합니다."
+ },
+ {
+  "q": 4,
+  "page": 60,
+  "score": 2,
+  "reason": "The page directly explains that having early pricing (WTP) conversations is crucial because it prevents product failure, determines profitability, and helps shape the product roadmap based on features customers actually value."
+ },
+ {
+  "q": 8,
+  "page": 73,
+  "score": 0,
+  "reason": "The page discusses general pitfalls of segmentation, such as segmenting too late or relying only on observable characteristics, but does not address how to verify if the sales team can practically execute and apply the segmentation in the field."
+ },
+ {
+  "q": 5,
+  "page": 126,
+  "score": 1,
+  "reason": "이 페이지는 시장 점유율 확대를 위한 침투 가격 전략 등 일반적인 가격 책정 원칙을 다루고 있어 부분적으로 유용하지만, 신흥 시장의 특성이나 제품 기능 조정에 대한 구체적인 내용은 포함하고 있지 않습니다."
+ },
+ {
+  "q": 1,
+  "page": 189,
+  "score": 1,
+  "reason": "이 페이지는 제품 개발 전에 고객의 인지 가치와 지불 의향(WTP)을 먼저 검증하는 링크드인의 성공적인 프로세스를 보여주어 유용하지만, 수익 추정이 위험한 이유에 대한 직접적인 설명은 부족합니다."
+ },
+ {
+  "q": 25,
+  "page": 171,
+  "score": 0,
+  "reason": "The page discusses maintaining price integrity and avoiding hasty price cuts, but does not address whether lowering prices can expand demand by competing with low-cost alternatives like public transit or walking."
+ },
+ {
+  "q": 2,
+  "page": 61,
+  "score": 2,
+  "reason": "The page directly addresses the problem of 'feature shock' where adding too many features reduces willingness to pay, and it advises validating feature value and willingness to pay early in development to determine which features to keep."
+ },
+ {
+  "q": 28,
+  "page": 221,
+  "score": 2,
+  "reason": "이 페이지는 소수의 고잠재력 제품을 깊이 이해하는 것이 예산 배분 결정을 내리고 상업적 리스크를 줄이는 데 왜 더 유리한지 직접적으로 설명하고 있습니다."
+ },
+ {
+  "q": 9,
+  "page": 85,
+  "score": 1,
+  "reason": "이 페이지는 혼합 번들링을 통해 실제 할인 없이도 할인 효과를 보여주는 방법을 언급하여 관련이 있으나, 구체적인 커뮤니케이션 방식이나 동일한 할인에 대한 효과적인 표현법을 자세히 다루지는 않습니다."
+ },
+ {
+  "q": 17,
+  "page": 157,
+  "score": 1,
+  "reason": "이 페이지는 앵커링과 데코이 효과를 통해 프리미엄 옵션의 매력을 높이는 행동 경제학적 방법을 다루고 있어 일부 유용하지만, 심리적 임계점 파악이나 저가형 상품의 가치 과잉 문제를 직접적으로 해결하지는 않습니다."
+ },
+ {
+  "q": 14,
+  "page": 133,
+  "score": 1,
+  "reason": "The page discusses the trade-offs between price, volume, and revenue (Point 6), which is highly relevant to the user's concern about price sensitivity, but it does not provide a specific methodology for determining the optimal price level."
+ },
+ {
+  "q": 22,
+  "page": 61,
+  "score": 1,
+  "reason": "The page provides useful advice on refining features to avoid 'feature shock' and how to ask customers about willingness-to-pay, but it does not specify which customer segments to target first."
+ },
+ {
+  "q": 2,
+  "page": 36,
+  "score": 2,
+  "reason": "The page directly addresses the 'feature shock' phenomenon where adding too many features leads to customer confusion and profit-destroying discounting, and it offers the key advice of tailoring products based on segment needs and willingness to pay."
+ },
+ {
+  "q": 2,
+  "page": 60,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining how conducting early willingness-to-pay (WTP) conversations helps identify which features customers actually value and are willing to pay for, thereby preventing 'feature shock' and protecting profitability."
+ },
+ {
+  "q": 21,
+  "page": 171,
+  "score": 2,
+  "reason": "이 페이지는 매출 부진의 원인을 찾기 위한 '딜 분석(deal deconstruction)' 방법과 광고 증대, 제품 가치 추가 등 가격 인하를 대체할 구체적인 비가격 조치를 직접 제시합니다."
+ },
+ {
+  "q": 26,
+  "page": 61,
+  "score": 1,
+  "reason": "이 페이지는 고객의 지불 의향(WTP)을 파악하기 위한 구체적인 질문 방법을 제시하여 유용하지만, 중간 판매점 관리나 브랜드 이미지 유지에 대한 내용은 다루지 않습니다."
+ },
+ {
+  "q": 4,
+  "page": 24,
+  "score": 2,
+  "reason": "The page directly addresses the problem of postponing pricing decisions to the end of development and explains that designing the product around the price from the start is crucial for success."
+ },
+ {
+  "q": 16,
+  "page": 24,
+  "score": 1,
+  "reason": "The page explains the importance of putting willingness to pay at the core of product design before building it, which is highly relevant to the alignment issue, but it does not explicitly list the specific key questions the teams should align on."
+ },
+ {
+  "q": 20,
+  "page": 172,
+  "score": 1,
+  "reason": "The page directly addresses the scenario of unexpectedly high sales and suggests investigating the root causes to see if the product was underpriced, but it lacks specific tactics on how to gradually raise prices while minimizing customer backlash."
+ },
+ {
+  "q": 0,
+  "page": 61,
+  "score": 2,
+  "reason": "The page directly answers the question by advising to have the 'Willingness-to-Pay' talk early and providing specific, direct questions to ask customers to validate feature value and pricing before launch."
+ },
+ {
+  "q": 6,
+  "page": 51,
+  "score": 1,
+  "reason": "이 페이지는 출시 전 고객의 지불 의향을 파악하는 것의 중요성을 강조하며 관련 통념을 반박하지만, 구체적으로 어떻게 고객과 소통하고 제품 방향을 설정해야 하는지에 대한 실질적인 방법은 제공하지 않습니다."
+ },
+ {
+  "q": 17,
+  "page": 63,
+  "score": 0,
+  "reason": "The page only contains a figure title and a section heading about willingness-to-pay conversations, offering no actual content or guidance on psychological price thresholds or product tiering."
+ },
+ {
+  "q": 25,
+  "page": 201,
+  "score": 1,
+  "reason": "The page discusses Uber's penetration pricing strategy and high price elasticity to expand market share, but it does not specifically address competing with alternatives like public transit, rental cars, or walking."
+ },
+ {
+  "q": 13,
+  "page": 123,
+  "score": 2,
+  "reason": "이 페이지는 가격 탄력성 데이터와 비용 구조를 결합하여 신제품의 이익을 극대화하는 최적 가격을 도출하는 구체적인 방법을 직접적으로 설명합니다."
+ },
+ {
+  "q": 21,
+  "page": 165,
+  "score": 1,
+  "reason": "이 페이지는 매출이 기대 이하일 때 가격 인하를 피해야 한다는 화두를 던지며 상황에 공감하지만, 구체적인 실제 원인이나 비가격 조치에 대한 해결책은 아직 제시하지 않고 있습니다."
+ },
+ {
+  "q": 26,
+  "page": 64,
+  "score": 1,
+  "reason": "The page provides useful advice on how to determine customer willingness to pay (WTP) by focusing on value first, but it does not address intermediaries or how to continuously monitor this over time."
+ },
+ {
+  "q": 11,
+  "page": 102,
+  "score": 2,
+  "reason": "이 페이지는 공급 제약(공급)과 수요 변동(수요)에 따라 가격을 조정하여 수익을 극대화하는 동적 가격 책정의 구체적인 메커니즘과 고객 및 기업 관점의 장단점을 상세히 설명하고 있습니다."
+ },
+ {
+  "q": 5,
+  "page": 24,
+  "score": 1,
+  "reason": "이 페이지는 고객의 지불 의향에 맞춰 제품을 설계하는 '가격 중심 설계(design the product around the price)'라는 기본 개념을 제시하여 관련성이 있으나, 신흥 시장이나 구체적인 기능 조정 방법에 대한 직접적인 답변은 포함되어 있지 않습니다."
+ },
+ {
+  "q": 25,
+  "page": 202,
+  "score": 2,
+  "reason": "이 페이지는 가격을 낮춤으로써 대중교통, 렌터카, 자가용, 도보 등의 대체재를 대신하여 수요를 극대화할 수 있다는 우버의 구체적인 사례와 전략을 통해 질문에 직접적인 답변을 제공합니다."
+ },
+ {
+  "q": 1,
+  "page": 212,
+  "score": 1,
+  "reason": "이 페이지는 고객이 가치 있게 여기는 방식(사용량 기반)에 맞춰 과금 모델을 설계한 Optimizely의 사례를 다루고 있어 부분적으로 유용하지만, 신제품 수익 추정의 위험성에 대해서는 직접적으로 설명하지 않습니다."
+ },
+ {
+  "q": 3,
+  "page": 63,
+  "score": 0,
+  "reason": "제시된 페이지는 지불 의향(Willingness-to-Pay) 대화법에 대한 그림 제목과 소제목만 포함하고 있어 원가 기준 가격 책정과 가치 기반 가격 책정의 차이를 전혀 설명하지 않습니다."
+ },
+ {
+  "q": 19,
+  "page": 161,
+  "score": 0,
+  "reason": "The page only discusses focus groups as a small, controlled testing method and does not provide information on large-scale experiments or survey tests for pricing."
+ },
+ {
+  "q": 15,
+  "page": 127,
+  "score": 1,
+  "reason": "이 페이지는 고객의 지불 의향(WTP)을 반영하여 비즈니스 케이스를 점진적으로 구축하는 방향성을 제시하지만, 각 기능(feature)별 지불 의향을 측정하는 구체적인 방법론은 다른 장을 참조하도록 안내하고 있어 부분적으로만 유용합니다."
+ },
+ {
+  "q": 28,
+  "page": 74,
+  "score": 0,
+  "reason": "제시된 페이지는 고객 세분화(Segmentation) 방식과 단일 세그먼트 집중 전략에 대해 다룰 뿐, 여러 신제품 후보 중 소수를 깊게 검증하는 것이 왜 유리한지에 대한 질문에는 답하지 않습니다."
+ },
+ {
+  "q": 17,
+  "page": 154,
+  "score": 2,
+  "reason": "이 페이지는 저가형(Basic) 상품의 기능을 축소하고 상위 상품의 가치를 재배치하여 프리미엄 상품의 매력을 높이는 구체적인 해결책과 성공 사례를 직접적으로 제시합니다."
+ },
+ {
+  "q": 6,
+  "page": 24,
+  "score": 1,
+  "reason": "이 페이지는 가격을 먼저 결정하고 그에 맞춰 제품을 설계해야 한다는 핵심 방향성을 제시하지만, 고객과 구체적으로 어떤 방식으로 대화하여 가격 수용도를 파악해야 하는지에 대한 실무적인 방법론은 담고 있지 않습니다."
+ },
+ {
+  "q": 20,
+  "page": 133,
+  "score": 1,
+  "reason": "가격 인상과 판매량의 상충 관계 및 데이터 기반 분석의 필요성을 언급하여 부분적으로 유용하지만, 잘 팔리는 제품의 점진적 가격 인상과 고객 반발 최소화에 대한 직접적인 답은 제공하지 않습니다."
+ },
+ {
+  "q": 26,
+  "page": 196,
+  "score": 1,
+  "reason": "제품 개발 전에 '셀링 스토리'를 활용하여 고객의 지불 의향을 파악하는 방법을 제시하지만, 중간 판매점 관리나 브랜드 평판을 유지하는 방법에 대한 구체적인 언급은 없습니다."
+ },
+ {
+  "q": 13,
+  "page": 184,
+  "score": 1,
+  "reason": "포르쉐가 시장 시뮬레이션 모델에 가격 탄력성을 반영하여 가격을 최적화한 사례를 보여주지만, 수요곡선의 구체적인 활용법은 다른 장을 참조하고 있어 부분적으로만 유용합니다."
+ },
+ {
+  "q": 15,
+  "page": 25,
+  "score": 1,
+  "reason": "The page emphasizes the importance of including willingness-to-pay data in the business case to avoid failure, but it only introduces the concept and refers to later chapters for the specific methodology."
+ },
+ {
+  "q": 28,
+  "page": 226,
+  "score": 0,
+  "reason": "제시된 페이지는 모네타이제이션 담당자(Hero)의 역할과 파일럿 단계의 규칙을 설명할 뿐, 여러 신제품 후보 중 소수를 깊게 검증해야 하는 이유에 대해서는 다루지 않습니다."
+ },
+ {
+  "q": 27,
+  "page": 220,
+  "score": 1,
+  "reason": "The page explains how integrating market access and payer requirements early in product development helps align clinical trials with pricing and market access needs, though it does not explicitly focus on 'country teams'."
+ },
+ {
+  "q": 25,
+  "page": 203,
+  "score": 2,
+  "reason": "이 페이지는 UberPool을 통해 가격을 낮춤으로써 자가용 소유의 대체재가 되고 대중교통의 강력한 경쟁 상대가 될 수 있음을 직접적으로 설명하여 질문에 대한 답을 제공합니다."
+ },
+ {
+  "q": 7,
+  "page": 74,
+  "score": 1,
+  "reason": "The page explains how to segment properly for new products (using a unified scheme based on needs, value, and WTP starting from R&D), but it does not explicitly detail the consequences of segmenting too late."
+ },
+ {
+  "q": 16,
+  "page": 142,
+  "score": 1,
+  "reason": "The page perfectly describes the organizational disconnect and the problem of sales teams being brought in too late, but it does not list the specific key questions they need to align on from the beginning."
+ },
+ {
+  "q": 15,
+  "page": 134,
+  "score": 1,
+  "reason": "The page emphasizes the importance of incorporating customer willingness to pay (WTP) into an 'outside-in' business case to realize full market potential, but it does not provide specific methodologies on how to measure or reflect feature-level WTP."
+ },
+ {
+  "q": 19,
+  "page": 162,
+  "score": 2,
+  "reason": "The page directly answers the question by suggesting the use of surveys that simulate controlled tests (such as off-line surveys with hypothetical situations) when price transparency prevents live testing."
+ },
+ {
+  "q": 29,
+  "page": 228,
+  "score": 1,
+  "reason": "The page mentions the importance of cross-functional teams and their roles in ensuring WTP evidence, but it does not explain the specific consequences of failing to involve marketing and sales from the beginning."
+ },
+ {
+  "q": 6,
+  "page": 60,
+  "score": 2,
+  "reason": "이 페이지는 출시 전 고객과의 가격 대화(WTP)를 통해 적정 가격 범위를 파악하고, 기능별 가치를 평가하여 제품의 방향성(로드맵)을 설정하는 구체적인 방법을 직접적으로 제시하고 있습니다."
+ },
+ {
+  "q": 8,
+  "page": 171,
+  "score": 1,
+  "reason": "이 페이지는 세그멘테이션 전략이 실제로 작동하는지 확인하는 지표와 영업 팀이 현장에서 가치 커뮤니케이션을 올바르게 적용했는지 검토하는 '딜 사후 분석(deal deconstructions)' 방법을 제시하여 부분적으로 유용합니다."
+ },
+ {
+  "q": 24,
+  "page": 230,
+  "score": 1,
+  "reason": "The page is partially useful because it discusses shifting the approval mindset to prevent pushing unwanted products and emphasizes customer input, but it does not detail how to set up the review process or who should make the final decision."
+ },
+ {
+  "q": 7,
+  "page": 78,
+  "score": 1,
+  "reason": "이 페이지는 고객의 니즈와 지불의향(WTP)을 기준으로 세분화해야 한다는 방법론과 제품 설계 전 세분화의 중요성을 제시하지만, 세분화가 늦어졌을 때 발생하는 구체적인 문제점은 상세히 다루지 않아 부분적으로만 유용합니다."
+ },
+ {
+  "q": 26,
+  "page": 63,
+  "score": 1,
+  "reason": "The page introduces the concept of having the 'willingness-to-pay' talk early and mentions five methods, but lacks the detailed explanation needed to fully answer the question."
+ },
+ {
+  "q": 10,
+  "page": 58,
+  "score": 1,
+  "reason": "이 페이지는 잠재 고객을 대상으로 지불 의향(WTP)과 가치를 직접 조사하여 적절한 과금 방식(구독료 등)을 결정하는 검증 프로세스를 제시하므로 부분적으로 유용합니다."
+ },
+ {
+  "q": 9,
+  "page": 152,
+  "score": 1,
+  "reason": "이 페이지는 가격을 매력적으로 보이게 하는 행동 가격 결정(behavioral pricing)과 앵커링 기법을 설명하여 질문과 관련이 있으나, 번들 가격이나 구체적인 할인 표현 방식에 대한 직접적인 답변은 포함되어 있지 않습니다."
+ },
+ {
+  "q": 29,
+  "page": 225,
+  "score": 1,
+  "reason": "The page recommends forming a cross-functional team including marketing and sales for the pricing process, but it does not explain why they are necessary or the specific consequences of their absence."
+ },
+ {
+  "q": 15,
+  "page": 28,
+  "score": 1,
+  "reason": "The page introduces the concept of having 'willingness to pay' talks early to prioritize features and segment customers, but it does not provide the specific methodology for determining feature-level pricing or integrating it into a business case."
+ },
+ {
+  "q": 6,
+  "page": 64,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining how to structure conversations with customers—starting with pain points and value before transitioning to asking about acceptable pricing—to determine their willingness to pay."
+ },
+ {
+  "q": 27,
+  "page": 217,
+  "score": 1,
+  "reason": "The page explains the importance of early-stage customer insights and country-specific payer needs for market access, but it does not specifically detail how to leverage 'country teams' to achieve this."
+ },
+ {
+  "q": 18,
+  "page": 157,
+  "score": 2,
+  "reason": "이 페이지는 B2B 협상 시 높은 앵커 가격을 설정하고 기술적 우위 등의 명분을 제시하여 할인 요구에 대응하면서도 최종 판매가를 높게 유지하는 구체적인 전략을 직접적으로 설명합니다."
+ },
+ {
+  "q": 21,
+  "page": 170,
+  "score": 2,
+  "reason": "The page directly identifies non-pricing causes of low sales—such as feature, distribution, awareness, quality, or sales training issues—and provides concrete non-pricing solutions like product redesign instead of price cuts."
+ },
+ {
+  "q": 15,
+  "page": 131,
+  "score": 2,
+  "reason": "The page directly answers the question by advising that a business case must model the linkages between price, value, volume, and cost, and prioritize features based on customers' willingness to pay (WTP) to avoid underpricing and realize true monetization potential."
+ },
+ {
+  "q": 12,
+  "page": 212,
+  "score": 1,
+  "reason": "The page is partly useful as it explains the rationale for choosing a usage-based pricing model over a per-user model to align price with value, though it lacks specific design steps."
+ },
+ {
+  "q": 29,
+  "page": 231,
+  "score": 2,
+  "reason": "제공된 페이지는 가격 중심의 신제품 설계 시 cross-functional team이 필요한 이유와 마케팅 및 영업팀의 초기 참여 부재 시 발생할 수 있는 문제점(가치 전달 실패, 매출 저하 등)을 정확하고 직접적으로 설명하고 있습니다."
+ },
+ {
+  "q": 26,
+  "page": 127,
+  "score": 1,
+  "reason": "The page emphasizes the need to continuously update and test customers' willingness to pay (WTP) during new product development, but it lacks specific details on maintaining positive brand perception with customers and intermediaries."
+ },
+ {
+  "q": 6,
+  "page": 55,
+  "score": 1,
+  "reason": "The page introduces the key concept of having 'Willingness-to-Pay' talks early to design products around price, but it is an introductory page that does not yet detail the specific methods of how to conduct these conversations."
+ },
+ {
+  "q": 10,
+  "page": 107,
+  "score": 2,
+  "reason": "The page directly answers the question by introducing a five-question framework to choose the right monetization model and explaining how to test customer preferences."
+ },
+ {
+  "q": 20,
+  "page": 126,
+  "score": 1,
+  "reason": "The page mentions key concepts like price elasticity, revenue-maximizing price points, and planning for customer reactions, which are highly relevant to the question, but it only lists them as high-level questions rather than providing a detailed methodology."
+ },
+ {
+  "q": 29,
+  "page": 172,
+  "score": 0,
+  "reason": "The page discusses post-launch pricing strategies and analyzing unexpectedly high sales, but does not explain why a cross-functional team is needed during early-stage product design or the consequences of excluding marketing and sales."
+ },
+ {
+  "q": 7,
+  "page": 73,
+  "score": 2,
+  "reason": "The page directly answers how to segment customers based on needs, value, and willingness to pay, and explains that segmenting too late leads to creating a mediocre 'one-size-fits-all' product that satisfies no one."
+ },
+ {
+  "q": 27,
+  "page": 219,
+  "score": 1,
+  "reason": "The page is highly related as it discusses gathering customer and market insights in early drug development stages (Phase II) to assess value and market access, but it does not specifically mention 'country teams'."
+ },
+ {
+  "q": 10,
+  "page": 57,
+  "score": 2,
+  "reason": "The page directly answers the question by advising the team to have 'willingness-to-pay' (WTP) conversations with customers early in the development process to determine how to monetize and price the new service."
+ },
+ {
+  "q": 10,
+  "page": 25,
+  "score": 1,
+  "reason": "고객이 가치를 두는 요소와 지불 의향을 먼저 파악하여 제품을 설계해야 한다는 방향성은 제시하지만, 구체적인 과금 방식이나 모델을 결정하는 세부 방법론은 담겨 있지 않아 부분적으로만 유용합니다."
+ },
+ {
+  "q": 27,
+  "page": 218,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining that country teams, being closest to patients, physicians, and payers, can provide crucial insights on unmet needs and viability early in the development process."
+ },
+ {
+  "q": 14,
+  "page": 172,
+  "score": 0,
+  "reason": "The page discusses nonprice alternatives, competitor reactions, and unexpectedly high sales, but does not address how to measure price sensitivity or determine the optimal price level."
+ },
+ {
+  "q": 0,
+  "page": 51,
+  "score": 1,
+  "reason": "이 페이지는 출시 전에 고객의 지불 의향을 파악하는 것이 왜 중요한지 설명하며 질문의 문제의식에 공감하지만, 구체적으로 '어떻게' 이를 측정하고 확인할 수 있는지에 대한 실질적인 방법론은 제시하지 않습니다."
+ },
+ {
+  "q": 4,
+  "page": 48,
+  "score": 2,
+  "reason": "The page directly explains that bringing pricing considerations into the product development process early is critical to avoiding major product failures like feature shocks, minivations, hidden gems, and undeads."
+ },
+ {
+  "q": 9,
+  "page": 90,
+  "score": 0,
+  "reason": "The page discusses product bundling rules and configuration strategies, but does not address how to communicate bundle pricing or frame discounts to customers."
+ },
+ {
+  "q": 16,
+  "page": 148,
+  "score": 2,
+  "reason": "이 페이지는 영업 및 마케팅 팀이 제품 개발 초기부터 참여해야 함을 강조하며, 세 팀이 함께 맞춰야 할 구체적인 핵심 질문들(CEO Questions)을 직접적으로 제시합니다."
+ },
+ {
+  "q": 3,
+  "page": 37,
+  "score": 2,
+  "reason": "이 페이지는 원가 가산 방식(cost-plus)과 가치 기반 방식(value-based)의 차이를 구체적인 사례를 통해 비교하며, 원가 기준 방식이 가치 기반 방식에 비해 얼마나 많은 수익을 놓치게 만드는지 직접적으로 설명합니다."
+ },
+ {
+  "q": 12,
+  "page": 109,
+  "score": 2,
+  "reason": "이 페이지는 경쟁사보다 앞서기 위한 과금 모델의 중요성을 언급하며, 사용량 수준(usage intensity)에 따라 요금을 다르게 설계하는 구체적인 방법과 예시를 직접적으로 제시하고 있습니다."
+ },
+ {
+  "q": 7,
+  "page": 70,
+  "score": 1,
+  "reason": "이 페이지는 신제품 개발과 가격 책정을 위해 고객의 니즈, 가치, 지불 의향(WTP)을 기준으로 세분화해야 한다는 해답을 제시하지만, 세분화를 너무 늦게 했을 때 발생하는 문제점에 대해서는 다루지 않습니다."
+ },
+ {
+  "q": 23,
+  "page": 191,
+  "score": 2,
+  "reason": "이 페이지는 기존의 'fuzzy front end' 방식에서 벗어나 고객의 지불 의향(WTP)을 조기에 파악하고 가격에 맞춰 제품을 설계하는 프로세스로 전환해야 한다는 핵심 조언을 제공합니다."
+ },
+ {
+  "q": 22,
+  "page": 60,
+  "score": 1,
+  "reason": "이 페이지는 초기 가격 대화(WTP)를 통해 고객이 어떤 기능에 가치를 느끼고 얼마를 지불할 용의가 있는지 파악하여 우선순위를 정하는 방법을 제시하지만, 구체적으로 '어떤 고객'을 대상으로 해야 하는지에 대한 설명은 부족합니다."
+ },
+ {
+  "q": 11,
+  "page": 200,
+  "score": 2,
+  "reason": "이 페이지는 우버의 동적 가격 책정(서지 프라이싱)이 실시간 수요와 공급을 조절하여 공급자(운전자)에게는 더 높은 수익을, 고객(탑승객)에게는 차량 가용성 확보라는 혜택을 제공하는 방식을 직접적으로 설명합니다."
+ },
+ {
+  "q": 21,
+  "page": 175,
+  "score": 2,
+  "reason": "The page directly answers the question by identifying non-pricing causes for low sales—such as quality, communication, and sales-force training issues—and emphasizing the need for non-price actions over price cuts."
+ },
+ {
+  "q": 13,
+  "page": 124,
+  "score": 2,
+  "reason": "The page directly explains how to utilize the steepness and level of a product-specific price elasticity curve to calculate the optimal price and margin for a new product."
+ },
+ {
+  "q": 5,
+  "page": 165,
+  "score": 0,
+  "reason": "제시된 페이지는 출시 후 가격 인하 압박에 대응하는 방법에 관한 내용으로, 신흥 시장에서의 가격 책정 및 기능 구성 전략과는 관련이 없습니다."
+ },
+ {
+  "q": 23,
+  "page": 52,
+  "score": 2,
+  "reason": "이 페이지는 혁신 프로세스의 초기 단계(front end)에서부터 수익화와 고객의 지불 의향을 중심에 두고 제품을 설계해야 한다는 핵심적인 해결책을 제시하여 질문에 직접적으로 답변합니다."
+ },
+ {
+  "q": 8,
+  "page": 78,
+  "score": 2,
+  "reason": "The page directly answers the question by suggesting that segment descriptions and observable criteria must pass the 'sales team's sniff test' (Question 4) to ensure they are practical for the sales team."
+ },
+ {
+  "q": 0,
+  "page": 60,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining how having early willingness-to-pay (WTP) conversations helps identify which features customers value most, how much they will pay, and whether the product can be delivered profitably."
+ },
+ {
+  "q": 24,
+  "page": 227,
+  "score": 0,
+  "reason": "이 페이지는 수익화 프로세스의 확장(Scale)과 전담 팀 구성에 대해 다룰 뿐, 고객 요구를 검증하는 구체적인 검토 절차 설계나 최종 의사결정권자에 대한 내용을 담고 있지 않습니다."
+ },
+ {
+  "q": 20,
+  "page": 170,
+  "score": 1,
+  "reason": "이 페이지는 제품이 너무 쉽게 판매될 때 가격이 너무 낮게 책정되었는지를 판단할 수 있는 구체적인 지표(예: 에스컬레이션 딜의 수)를 제시하여 부분적으로 유용한 조언을 제공합니다."
+ },
+ {
+  "q": 14,
+  "page": 61,
+  "score": 1,
+  "reason": "The page is partly useful as it suggests asking customers direct questions about acceptable and expensive price thresholds to determine willingness to pay, though its focus is primarily on pre-launch validation rather than post-launch price elasticity."
+ },
+ {
+  "q": 22,
+  "page": 63,
+  "score": 1,
+  "reason": "새로운 기능 준비 시 가격 수용도(WTP) 대화를 조기에 시작해야 한다는 방향성은 제시하지만, 구체적으로 어떤 고객을 타겟팅하고 어떤 부분을 다듬어야 하는지에 대한 세부 답변은 포함되어 있지 않습니다."
+ },
+ {
+  "q": 5,
+  "page": 167,
+  "score": 0,
+  "reason": "제시된 페이지는 출시 후 가격 일관성 유지와 성급한 가격 인하 방지에 대해 다룰 뿐, 신흥 시장에서의 가격 책정이나 기능 조정에 대한 내용을 포함하고 있지 않습니다."
+ },
+ {
+  "q": 4,
+  "page": 13,
+  "score": 0,
+  "reason": "제공된 페이지 내용이 없어 질문에 대한 유용성을 평가할 수 없습니다."
+ },
+ {
+  "q": 19,
+  "page": 62,
+  "score": 2,
+  "reason": "이 페이지는 라이브 테스트의 대안으로 활용할 수 있는 대규모 정량 설문조사와 다양한 가격 및 기능 조합을 제시해 선택하게 하는 '구매 시나리오 시뮬레이션' 방식을 구체적으로 제시하고 있습니다."
+ },
+ {
+  "q": 24,
+  "page": 197,
+  "score": 2,
+  "reason": "이 페이지는 고객 중심의 CPM 프로세스를 구축하는 방법과 C-레벨이 참여하는 제품 포트폴리오 위원회가 최종 의사결정을 내려야 한다는 점을 구체적인 사례와 함께 직접적으로 설명합니다."
+ },
+ {
+  "q": 3,
+  "page": 51,
+  "score": 1,
+  "reason": "이 페이지는 원가 가산 방식(cost-plus)의 개념과 고객의 지불 의향을 선제적으로 파악하는 관점을 언급하고 있으나, 두 가격 책정 방식의 구체적인 차이점을 직접적으로 비교하여 설명하지는 않습니다."
+ },
+ {
+  "q": 14,
+  "page": 126,
+  "score": 1,
+  "reason": "The page identifies relevant concepts like price elasticity and the pricing response curve to find the maximizing price point, but it only lists them as questions rather than explaining how to actually measure or determine them."
+ },
+ {
+  "q": 14,
+  "page": 24,
+  "score": 1,
+  "reason": "가격 인상이 수요에 미치는 영향과 고객의 지불 의향 파악의 중요성을 언급하고 있으나, 구체적인 적정 가격 결정 방법론을 제시하지는 않아 부분적으로만 유용합니다."
+ },
+ {
+  "q": 6,
+  "page": 52,
+  "score": 1,
+  "reason": "The page emphasizes the importance of designing a product around a price and understanding willingness to pay early on, but it does not provide the specific methods or conversation guides on how to talk to customers to determine that price."
+ },
+ {
+  "q": 22,
+  "page": 64,
+  "score": 1,
+  "reason": "이 페이지는 가격을 정하기 전에 고객의 페인 포인트와 제품의 가치를 먼저 물어보고 다듬어야 한다는 순서를 명확히 제시하지만, 구체적으로 '어떤 고객'을 타겟팅해야 하는지에 대한 설명은 빠져 있습니다."
+ },
+ {
+  "q": 15,
+  "page": 38,
+  "score": 1,
+  "reason": "이 페이지는 underpricing의 문제점과 지불 의향(WTP) 파악의 중요성을 설명하여 질문과 관련이 있으나, 각 기능별 지불 의향을 구체적으로 측정하고 반영하는 방법은 제시하지 않습니다."
+ },
+ {
+  "q": 8,
+  "page": 214,
+  "score": 0,
+  "reason": "The page discusses product bundling and customer segment preferences for Optimizely, but it does not address how to verify if a sales team can practically execute and sell based on a segmentation model."
+ },
+ {
+  "q": 17,
+  "page": 159,
+  "score": 1,
+  "reason": "The page is partially useful as it discusses the psychological impact of pricing and the strategy of starting with a basic version to upsell to advanced, but it does not explain how to identify price thresholds or prevent feature cannibalization between tiers."
+ },
+ {
+  "q": 1,
+  "page": 28,
+  "score": 2,
+  "reason": "이 페이지는 제품 개발 초기 단계에서 고객의 지불 의향(WTP)을 먼저 파악해야만 제품 기능의 우선순위를 정하고 시장 실패를 피할 수 있다는 핵심적인 조언을 직접적으로 제공합니다."
+ },
+ {
+  "q": 14,
+  "page": 207,
+  "score": 0,
+  "reason": "The page discusses Swarovski's price-tier system and designing products around a target price, but it does not provide methods or advice on how to measure price sensitivity or determine the optimal price point for a highly price-elastic product."
+ },
+ {
+  "q": 21,
+  "page": 172,
+  "score": 1,
+  "reason": "The page provides specific examples of non-price actions to avoid price cuts, but it does not fully explain the actual causes of below-target sales."
+ },
+ {
+  "q": 18,
+  "page": 167,
+  "score": 1,
+  "reason": "이 페이지는 가격 일관성을 유지하고 할인 요구 시 대가를 요구하여 가격을 방어하는 법을 다루고 있어 부분적으로 유용하지만, 질문이 묻는 '초기 가격 기준 제시 및 앵커링 방법'에 대한 직접적인 해답은 제공하지 않습니다."
+ },
+ {
+  "q": 10,
+  "page": 95,
+  "score": 1,
+  "reason": "새로운 서비스의 과금 방식(Monetization Model)을 정하는 것의 중요성과 개념을 소개하고 있어 질문과 관련이 깊지만, 구체적인 선택 기준이나 방법은 아직 제시하지 않고 있습니다."
+ },
+ {
+  "q": 11,
+  "page": 199,
+  "score": 1,
+  "reason": "이 페이지는 우버의 동적 가격 책정 사례를 소개하며 실시간 수요와 공급 조절의 필요성을 언급하지만, 구체적인 가격 조정 방식과 양측의 이익 창출 메커니즘에 대한 설명 직전에 내용이 끊깁니다."
+ },
+ {
+  "q": 6,
+  "page": 63,
+  "score": 1,
+  "reason": "The page is highly related as it advises having the willingness-to-pay talk early, but it only contains headers and lacks the actual details of the methods."
+ },
+ {
+  "q": 18,
+  "page": 173,
+  "score": 1,
+  "reason": "이 페이지는 초기 가격을 올바르게 책정하는 것의 중요성을 다루고 있으나, 할인 협상을 대비해 처음에 어떤 가격 기준을 제시해야 하는지에 대한 구체적인 방법은 다루지 않습니다."
+ },
+ {
+  "q": 25,
+  "page": 107,
+  "score": 0,
+  "reason": "The page discusses choosing monetization models and converting free users to paid, but does not address how lowering prices affects demand relative to low-cost alternatives like public transit or walking."
+ },
+ {
+  "q": 18,
+  "page": 172,
+  "score": 1,
+  "reason": "제시된 페이지는 할인 요구 시 비가격적 가치를 반대급부로 요구하여 최종 거래 가치를 지키는 방법을 다루고 있어 부분적으로 유용하지만, 초기 가격 기준을 설정하고 제시하는 방법에 대한 직접적인 설명은 부족합니다."
+ },
+ {
+  "q": 12,
+  "page": 213,
+  "score": 2,
+  "reason": "이 페이지는 사용량에 따른 요금제 설계 시 고려해야 할 핵심 기준인 가치 정렬, 확장성, 측정 용이성을 Optimizely의 구체적인 사례를 통해 직접적으로 설명합니다."
+ },
+ {
+  "q": 29,
+  "page": 142,
+  "score": 2,
+  "reason": "이 페이지는 마케팅과 영업 팀을 신제품 설계 및 가격 책정 초기부터 참여시키지 않았을 때 발생하는 가치 메시지 왜곡과 부서 간 불일치 문제를 직접적으로 설명합니다."
+ },
+ {
+  "q": 11,
+  "page": 101,
+  "score": 2,
+  "reason": "이 페이지는 우버(Uber)의 사례를 통해 실시간 수요와 공급에 따라 가격을 조정함으로써 공급자(운전자)와 소비자 모두에게 이익을 주는 동적 가격 책정의 작동 방식을 직접적으로 설명하고 있습니다."
+ },
+ {
+  "q": 6,
+  "page": 61,
+  "score": 2,
+  "reason": "The page directly answers the question by providing specific questions to ask customers to determine their willingness to pay before launch, while also explaining how to align product features with that value."
+ },
+ {
+  "q": 3,
+  "page": 115,
+  "score": 0,
+  "reason": "이 페이지는 가격 책정 전략 수립 시 목표 설정과 그에 따른 절충안에 대해 다룰 뿐, 원가 가산 방식과 가치 기반 가격 책정 방식의 차이에 대해서는 설명하지 않습니다."
+ },
+ {
+  "q": 20,
+  "page": 175,
+  "score": 2,
+  "reason": "The page directly addresses the scenario of demand exceeding expectations, advising that price increases should be implemented in small steps to avoid customer revolt."
+ },
+ {
+  "q": 15,
+  "page": 132,
+  "score": 1,
+  "reason": "The page explains how to reflect willingness to pay (WTP) and feature-pricing dynamics into a living business case, but it refers to another chapter for the specific methods of measuring customer WTP."
+ },
+ {
+  "q": 27,
+  "page": 216,
+  "score": 1,
+  "reason": "The page introduces a case study on a pharmaceutical company's R&D and market access challenges, but it does not yet explain how country teams' customer insights are used to assess market access and price potential."
+ },
+ {
+  "q": 10,
+  "page": 212,
+  "score": 2,
+  "reason": "이 페이지는 고객이 얻는 가치와 사용량에 맞춰 과금 방식을 설계하고 구매 장벽을 줄이는 구체적인 의사결정 기준과 사례를 제시하여 질문에 직접적인 해결책을 제공합니다."
+ },
+ {
+  "q": 17,
+  "page": 80,
+  "score": 1,
+  "reason": "이 페이지는 저가형(Core)과 고가형 offering의 기능을 세그먼트별 지불의향(WTP)에 맞게 구성하여 카니발라이제이션을 방지하는 방법을 설명하지만, 심리적 가격 임계점을 파악하는 방법은 다루지 않습니다."
+ },
+ {
+  "q": 24,
+  "page": 225,
+  "score": 1,
+  "reason": "The page is partially useful as it suggests forming a cross-functional team to prevent R&D-only bias and having leadership challenge early ideas, but it does not detail a specific customer-validation review process or explicitly define the final decision-maker."
+ },
+ {
+  "q": 24,
+  "page": 189,
+  "score": 2,
+  "reason": "이 페이지는 개발 전에 고객 검증을 거치는 구체적인 단계별 검토 절차(링크드인 사례)와 최종 개발 착수 여부를 결정하는 주체 및 기준을 명확히 제시하고 있습니다."
+ },
+ {
+  "q": 13,
+  "page": 122,
+  "score": 1,
+  "reason": "The page introduces the price elasticity curve as the most important input for price optimization and defines it, but it cuts off before explaining the specific strategies to use it to increase pricing power."
+ },
+ {
+  "q": 8,
+  "page": 76,
+  "score": 2,
+  "reason": "이 페이지는 통계적 세분화가 실제 영업 현장에서 유효한지 검증하기 위해 판매팀에게 직접 고객을 해당 세그먼트로 분류할 수 있는지 물어보는 구체적인 방법(acid test)을 제시하고 있습니다."
+ },
+ {
+  "q": 20,
+  "page": 173,
+  "score": 2,
+  "reason": "The page directly addresses how to handle pricing when a product sells better than expected, advising on gradual price increases accompanied by small product improvements to justify the hike and minimize customer backlash."
+ },
+ {
+  "q": 28,
+  "page": 233,
+  "score": 1,
+  "reason": "이 페이지는 검증 단계에 예산과 인력을 아끼는 것('Cheaping Out')이 실패로 이어진다며 충분한 투자의 필요성을 강조하지만, 여러 후보 중 소수를 깊게 검증하는 구체적인 비교 선택 논리는 다루지 않습니다."
+ },
+ {
+  "q": 16,
+  "page": 143,
+  "score": 2,
+  "reason": "이 페이지는 제품 개발 초기부터 영업 및 마케팅 팀을 참여시켜야 함을 강조하며, 고객 관점의 가치를 정의하기 위해 '이 기능 덕분에 고객이 달성하는 것은 무엇인가?'라는 핵심 질문을 던져야 한다고 직접적인 해답을 제시합니다."
+ },
+ {
+  "q": 8,
+  "page": 72,
+  "score": 0,
+  "reason": "제시된 페이지는 고객 세분화 사례와 세그먼트 유형만 설명할 뿐, 영업 현장에서 판매팀이 이를 실제로 쉽게 적용하고 구분할 수 있는지 검증하는 방법에 대한 구체적인 조언은 제공하지 않습니다."
+ },
+ {
+  "q": 19,
+  "page": 163,
+  "score": 0,
+  "reason": "The page only lists high-level CEO questions about behavioral pricing tactics and does not discuss alternative large-scale experiments or survey methods for pricing."
+ },
+ {
+  "q": 26,
+  "page": 58,
+  "score": 1,
+  "reason": "이 페이지는 신제품에 대한 고객의 지불 의향을 조사하고 확인하는 기본적인 방법을 제시하여 일부 유용하지만, 브랜드 이미지 유지나 중간 판매점 관리에 대한 구체적인 내용은 다루지 않습니다."
+ },
+ {
+  "q": 15,
+  "page": 212,
+  "score": 1,
+  "reason": "The page provides a useful case study on how Optimizely segmented customers by feature value and chose a usage-based model to avoid underpricing, but it does not detail the specific methodology for measuring willingness to pay for each feature."
+ },
+ {
+  "q": 8,
+  "page": 71,
+  "score": 1,
+  "reason": "The page discusses customer segmentation and validating segment preferences through research, but it does not address how to verify if the sales team can practically identify and target these segments in the field."
+ },
+ {
+  "q": 29,
+  "page": 227,
+  "score": 1,
+  "reason": "The page mentions the integration of a monetization team with a cross-functional team, but it does not explain why marketing and sales must be involved early on or what problems arise if they are excluded."
+ },
+ {
+  "q": 0,
+  "page": 57,
+  "score": 2,
+  "reason": "The page directly answers the question by advising to have \"Willingness-to-Pay\" talks with customers early (before building) to prioritize features and determine if the product can be profitably monetized."
+ },
+ {
+  "q": 20,
+  "page": 154,
+  "score": 1,
+  "reason": "이 페이지는 가격 인상 시 고객 반발을 줄이고 수익을 늘리기 위한 패키징 재구성 및 심리적 가격 책정 전략을 제시하지만, 제품이 잘 팔릴 때 가격 인상 가능 여부를 '판단하는 기준'에 대해서는 직접적으로 다루지 않습니다."
+ },
+ {
+  "q": 28,
+  "page": 216,
+  "score": 0,
+  "reason": "The page discusses Optimizely's pricing metrics and introduces a pharmaceutical case study on R&D spending, but it does not explain why deeply validating a few product candidates is better than quickly checking many."
+ },
+ {
+  "q": 0,
+  "page": 64,
+  "score": 2,
+  "reason": "이 페이지는 신제품 출시 전 고객이 원하는 기능과 그에 대한 지불 용의 금액(WTP)을 파악하기 위해 가치에서 가격으로 질문을 전환하는 구체적인 방법을 제시하여 질문에 직접적인 답을 제공합니다."
+ },
+ {
+  "q": 0,
+  "page": 63,
+  "score": 1,
+  "reason": "The page is partially useful as it advises having the 'Willingness-to-Pay' talk early and introduces the existence of five methods, though it lacks the detailed explanation of those methods."
+ },
+ {
+  "q": 28,
+  "page": 13,
+  "score": 0,
+  "reason": "제공된 페이지 내용이 없어 질문에 대한 답변이나 유용한 정보를 얻을 수 없습니다."
+ },
+ {
+  "q": 12,
+  "page": 108,
+  "score": 1,
+  "reason": "이 페이지는 경쟁사와의 차별화 및 요금제 모델 선택 시 고려할 점을 다루고 있어 일부 유용하지만, 사용량에 따른 구체적인 요금 설계 방법에 대한 직접적인 설명은 제공하지 않습니다."
+ },
+ {
+  "q": 3,
+  "page": 207,
+  "score": 1,
+  "reason": "이 페이지는 원가 기준 방식과 가치 기반 방식의 직접적인 비교 대신, 직관적 가격 책정에서 고객 가치 기반 가격 책정으로 전환했을 때의 차이와 이점을 사례로 설명하여 부분적으로 유용합니다."
+ },
+ {
+  "q": 22,
+  "page": 57,
+  "score": 1,
+  "reason": "The page highlights the importance of early willingness-to-pay talks to prioritize features and resolve uncertainty, but it does not specify which customer segments to target or how to select specific parts to refine."
+ },
+ {
+  "q": 8,
+  "page": 74,
+  "score": 1,
+  "reason": "이 페이지는 세분화 방식이 너무 많으면 영업 현장에서 혼란을 초래하므로 실행 가능해야 한다는 원칙(You can act differently)을 제시하지만, 판매팀이 실제로 고객을 쉽게 구분하고 판매할 수 있는지 검증하는 구체적인 방법은 다루지 않습니다."
+ },
+ {
+  "q": 9,
+  "page": 160,
+  "score": 0,
+  "reason": "이 페이지는 번들 가격 커뮤니케이션이나 할인 표현 방식이 아닌, 가격 프레이밍(시간 단위 분할) 및 심리적 가격 저항선에 대해 설명하고 있어 질문에 도움이 되지 않습니다."
+ },
+ {
+  "q": 16,
+  "page": 196,
+  "score": 1,
+  "reason": "이 페이지는 제품 개발 전에 마케팅 및 영업 메시지(셀링 스토리)를 미리 작성하여 부서 간 정렬을 이루는 방법을 제시하지만, 질문에서 묻는 '구체적인 핵심 질문 리스트'를 직접적으로 명시하고 있지는 않습니다."
+ },
+ {
+  "q": 26,
+  "page": 51,
+  "score": 1,
+  "reason": "이 페이지는 출시 전 고객의 지불 의향을 파악해야 한다는 필요성을 강조하지만, 브랜드 이미지나 중간 판매점과의 관계를 유지하며 이를 꾸준히 측정하는 구체적인 방법은 다루지 않습니다."
+ },
+ {
+  "q": 0,
+  "page": 48,
+  "score": 1,
+  "reason": "이 페이지는 제품 개발 초기 단계에 고객의 가치 인식과 가격 책정을 고려해야 실패를 피할 수 있다는 필요성을 강조하지만, 구체적인 방법론은 이후 장에서 다룬다고 안내하는 데 그칩니다."
+ },
+ {
+  "q": 22,
+  "page": 62,
+  "score": 2,
+  "reason": "The page directly addresses how to resolve internal division using an expert workshop first, and how to identify value-driving features through simulated customer scenarios to guide future pricing."
+ },
+ {
+  "q": 16,
+  "page": 57,
+  "score": 1,
+  "reason": "이 페이지는 고객의 지불 용의(WTP)를 출시 전에 미리 확인해야 하는 이유를 다루고 있어 관련성이 높지만, 제품·마케팅·영업 팀이 함께 맞춰야 할 구체적인 핵심 질문을 직접적으로 제시하지는 않습니다."
+ },
+ {
+  "q": 14,
+  "page": 173,
+  "score": 0,
+  "reason": "이 페이지는 수요가 초과하여 가격을 올려야 하는 상황이나 가격 전쟁을 피하는 법을 다룰 뿐, 가격 민감도가 높은 제품의 적정 가격을 측정하고 결정하는 구체적인 방법은 제시하지 않습니다."
+ },
+ {
+  "q": 1,
+  "page": 25,
+  "score": 2,
+  "reason": "The page directly explains that revenue estimates without willingness-to-pay data are mere guesses leading to failure, and highlights that successful innovators design products and monetization strategies around what customers value and are willing to pay."
+ },
+ {
+  "q": 18,
+  "page": 156,
+  "score": 1,
+  "reason": "The page introduces 'anchoring' and the 'compromise effect' as key behavioral pricing tactics for negotiations, which are highly relevant to setting initial price references, though the detailed explanation of anchoring is cut off."
+ },
+ {
+  "q": 3,
+  "page": 64,
+  "score": 1,
+  "reason": "The page discusses how to determine value-based pricing through customer conversations, which is related to the value-based aspect of the question, but it does not compare it to cost-plus pricing."
+ },
+ {
+  "q": 7,
+  "page": 77,
+  "score": 2,
+  "reason": "이 페이지는 세분화를 고객의 니즈, 가치, 지불의향(WTP) 기준으로 제품 개발 초기 단계부터 진행해야 하며, 늦어질 경우 평균적인 고객을 위한 제품을 만들게 되어 수익화에 실패한다는 핵심 답변을 직접적으로 제공합니다."
+ },
+ {
+  "q": 14,
+  "page": 165,
+  "score": 0,
+  "reason": "제시된 페이지는 출시 후 가격 인하 압박에 저항하고 가격 일관성을 유지하는 방법에 대한 내용으로, 가격 민감도를 파악하여 적정 가격 수준을 결정하는 방법과는 관련이 없습니다."
+ },
+ {
+  "q": 24,
+  "page": 196,
+  "score": 2,
+  "reason": "이 페이지는 개발 착수 전에 '셀링 스토리'를 통해 고객의 반응을 먼저 검증하는 구체적인 검토 절차와, 시장의 긍정적인 반응을 기준으로 개발 여부를 결정하는 의사결정 방식을 명확히 제시합니다."
+ },
+ {
+  "q": 17,
+  "page": 155,
+  "score": 1,
+  "reason": "The page is partly useful as it discusses using behavioral pricing and anchoring to guide customers toward Standard and Advanced tiers, but it does not explain how to identify psychological price thresholds or directly address over-valuing the Basic tier."
+ },
+ {
+  "q": 16,
+  "page": 231,
+  "score": 1,
+  "reason": "The page highlights the importance of early cross-functional alignment between product, marketing, and sales to prevent communication gaps, but it does not list the specific key questions they need to ask."
+ },
+ {
+  "q": 28,
+  "page": 214,
+  "score": 0,
+  "reason": "제시된 페이지는 옵티마이즐리의 제품 번들링 및 기능 우선순위 지정 사례를 다룰 뿐, 여러 신제품 후보 중 소수를 깊게 검증하는 것이 왜 유리한지에 대한 질문에는 답하지 않습니다."
+ },
+ {
+  "q": 18,
+  "page": 165,
+  "score": 1,
+  "reason": "이 페이지는 신제품 출시 후 가격 인하 압박에 저항하고 가격 일관성을 유지해야 하는 이유를 다루고 있어 관련은 있으나, 영업 시 고객에게 초기 가격 기준(앵커링)을 제시하는 구체적인 협상 방법은 제시하지 않습니다."
+ },
+ {
+  "q": 4,
+  "page": 49,
+  "score": 2,
+  "reason": "이 페이지는 가격 결정을 마지막 단계로 미루는 것이 신제품 개발 실패의 핵심 원인임을 지적하며, 왜 개발 초기부터 가격과 지불 의향을 함께 고민해야 하는지 직접적으로 설명합니다."
+ },
+ {
+  "q": 9,
+  "page": 91,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining how to strategically communicate bundle discounts, giving a specific example of how framing the same mathematical discount differently makes it more appealing."
+ },
+ {
+  "q": 2,
+  "page": 57,
+  "score": 2,
+  "reason": "이 페이지는 출시 전 고객과의 지불 의향(WTP) 대화를 통해 불필요한 기능 추가(피처 쇼크)를 방지하고 적절한 기능 범위를 정해 수익성을 지키는 방법을 직접적인 해결책으로 제시합니다."
+ },
+ {
+  "q": 28,
+  "page": 215,
+  "score": 1,
+  "reason": "The page highlights the importance of early and deep customer validation to avoid costly product and packaging mistakes, but it does not directly address the trade-off between deeply validating a few candidates versus shallowly validating many for budget allocation."
+ },
+ {
+  "q": 21,
+  "page": 169,
+  "score": 1,
+  "reason": "이 페이지는 매출 부진의 원인 4가지를 제시하고 가격 고수의 중요성을 강조하지만, 가격 인하 없이 취할 수 있는 구체적인 비가격적 해결 조치에 대한 설명은 부족합니다."
+ },
+ {
+  "q": 4,
+  "page": 232,
+  "score": 1,
+  "reason": "The page discusses designing a product around a price and having early willingness-to-pay (WTP) conversations, but it focuses on implementation pitfalls rather than directly explaining the fundamental reasons why early pricing is necessary."
+ },
+ {
+  "q": 3,
+  "page": 62,
+  "score": 0,
+  "reason": "The page discusses methods for conducting customer research to determine value, but it does not explain or compare the differences between cost-plus pricing and value-based pricing."
+ },
+ {
+  "q": 0,
+  "page": 58,
+  "score": 2,
+  "reason": "The page directly answers the question by describing how an innovation team validated customers' willingness to pay and feature preferences through targeted research before developing the product."
+ },
+ {
+  "q": 15,
+  "page": 36,
+  "score": 1,
+  "reason": "The page introduces the concepts of feature shock and minivations (underpricing) but does not provide the specific methodology for measuring willingness to pay for features, deferring the details to a later chapter."
+ },
+ {
+  "q": 3,
+  "page": 67,
+  "score": 1,
+  "reason": "제시된 페이지는 고객의 지불 의향(WTP)과 가치 평가 등 가치 기반 가격 책정 관련 내용을 다루고 있으나, 원가 가산 방식과의 구체적인 차이점을 비교하여 설명하지는 않습니다."
+ },
+ {
+  "q": 22,
+  "page": 67,
+  "score": 1,
+  "reason": "이 페이지는 고객이 가치를 두고 지불 의사가 있는 기능을 파악해 제품을 다듬어야 한다는 조언을 제공하지만, 어떤 고객군에게 먼저 질문해야 하는지에 대한 구체적인 답은 포함되어 있지 않습니다."
+ },
+ {
+  "q": 1,
+  "page": 126,
+  "score": 1,
+  "reason": "The page discusses pricing strategies and monetization principles but does not directly explain why revenue estimation is risky or why customer willingness to pay must be prioritized before product design."
+ },
+ {
+  "q": 13,
+  "page": 167,
+  "score": 1,
+  "reason": "The page mentions using the price elasticity curve to set the initial price and warns against abandoning it to maintain price integrity, but it does not explain how to analyze or utilize the curve itself to optimize pricing power."
+ },
+ {
+  "q": 24,
+  "page": 59,
+  "score": 1,
+  "reason": "The page is partially useful as it suggests using 'Willingness-to-Pay' talks to validate customer demand over R&D assumptions and shows the CEO making the final decision, though it focuses more on feature prioritization than establishing a formal organizational process."
+ },
+ {
+  "q": 20,
+  "page": 174,
+  "score": 0,
+  "reason": "The page focuses on managing price wars and avoiding price cuts when sales are slow, which does not address how to determine if and how to raise prices when a product is highly successful."
+ },
+ {
+  "q": 2,
+  "page": 80,
+  "score": 2,
+  "reason": "이 페이지는 과도한 기능 추가로 인한 '피처 쇼크(feature shock)' 문제를 직접 언급하며, 고객의 지불 용의(WTP)에 맞춰 필요한 기능만 구성함으로써 수익성을 지키는 명확한 해결책을 제시합니다."
+ },
+ {
+  "q": 0,
+  "page": 62,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining how to use direct questioning and simulated purchase scenarios to determine which features customers value and how much they are willing to pay before investing heavily in a product."
+ },
+ {
+  "q": 5,
+  "page": 113,
+  "score": 1,
+  "reason": "이 페이지는 시장 점유율을 위한 저가 전략과 프리미엄 전략의 선택을 다루는 장의 도입부로 주제와 관련은 있으나, 신흥 시장에서의 구체적인 가격 책정이나 기능 조정에 대한 구체적인 해답은 제공하지 않습니다."
+ },
+ {
+  "q": 1,
+  "page": 125,
+  "score": 0,
+  "reason": "제시된 페이지는 가격 책정 전략의 문서화와 구성 요소에 대해 설명할 뿐, 신제품 수익 추정의 위험성이나 고객 가치 및 지불 의향을 먼저 파악해야 하는 이유에 대해서는 다루지 않습니다."
+ },
+ {
+  "q": 20,
+  "page": 171,
+  "score": 0,
+  "reason": "제시된 페이지는 주로 가격 인하를 방지하고 딜을 분석하는 방법에 대해 다루고 있어, 제품이 잘 팔릴 때 가격을 인상하는 판단 기준이나 고객 반발을 줄이는 방법과는 관련이 없습니다."
+ },
+ {
+  "q": 26,
+  "page": 205,
+  "score": 1,
+  "reason": "이 페이지는 중간 판매점(B2B)과 최종 소비자를 모두 고려하여 소비자의 지불 의향(WTP)을 파악하는 것의 중요성을 Swarovski 사례를 통해 소개하고 있으나, 구체적인 방법론은 다음 페이지로 이어져 부분적으로만 유용합니다."
+ },
+ {
+  "q": 14,
+  "page": 115,
+  "score": 1,
+  "reason": "The page is partly useful as it explains how to make pricing trade-offs between customer volume and profit margins based on business goals, but it does not provide specific methods to measure or calculate price sensitivity."
+ },
+ {
+  "q": 5,
+  "page": 114,
+  "score": 0,
+  "reason": "The page discusses general pricing strategy formulation and segment-based discounting but does not address pricing or feature trade-offs for price-sensitive emerging markets like India."
+ },
+ {
+  "q": 4,
+  "page": 231,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining that early cross-functional collaboration is essential to design products around the price and prevent revenue failure caused by a lack of shared understanding of product value."
+ },
+ {
+  "q": 10,
+  "page": 108,
+  "score": 2,
+  "reason": "이 페이지는 미래 영향, 회사 단계, 경쟁 차별화, 구현 난이도 등 지속 가능하고 효과적인 수익 모델을 결정하기 위한 핵심 기준들을 직접적으로 제시합니다."
+ },
+ {
+  "q": 8,
+  "page": 82,
+  "score": 1,
+  "reason": "The page is highly related as it illustrates how simplifying customer segments into a few distinct, needs-based categories enables the sales force to easily explain and sell them, though it does not provide a specific step-by-step verification method."
+ },
+ {
+  "q": 16,
+  "page": 137,
+  "score": 1,
+  "reason": "이 페이지는 마케팅과 영업 팀을 제품 개발 초기에 참여시키고 기능이 아닌 고객 혜택에 집중해야 한다는 해결책을 제시하지만, 팀들이 함께 맞춰야 할 구체적인 핵심 질문들은 직접적으로 나열하지 않습니다."
+ },
+ {
+  "q": 28,
+  "page": 59,
+  "score": 1,
+  "reason": "The page is partly useful because it illustrates how validating customer willingness to pay helps prioritize R&D resources and eliminate waste, though it focuses on feature prioritization rather than choosing between multiple product candidates."
+ },
+ {
+  "q": 12,
+  "page": 216,
+  "score": 1,
+  "reason": "이 페이지는 사용량 기반 요금 설계 시 단순 사용량 대신 고객이 가치를 느끼는 기준(전체 트래픽 등)으로 요금 메트릭을 정해야 한다는 실질적인 사례와 조언을 제공하여 부분적으로 유용합니다."
+ },
+ {
+  "q": 5,
+  "page": 207,
+  "score": 1,
+  "reason": "이 페이지는 가격대에 맞춰 제품을 설계하는 방식(design the product around the price)을 설명하여 관련이 있으나, 신흥 시장이나 인도 같은 가격 민감 시장에서의 구체적인 기능 조정 및 시장 점유율 확대 전략은 다루지 않습니다."
+ },
+ {
+  "q": 8,
+  "page": 215,
+  "score": 0,
+  "reason": "The page discusses product bundling, pricing metrics, and validating GTM approaches with customers, but it does not address how to verify if the sales team can practically implement and sell based on customer segmentation in the field."
+ },
+ {
+  "q": 20,
+  "page": 25,
+  "score": 0,
+  "reason": "이 페이지는 신제품 개발 단계에서 고객의 지불 의향을 미리 파악해야 한다는 원론적인 내용만 다룰 뿐, 이미 출시되어 잘 팔리는 제품의 가격 인상 여부나 고객 반발을 줄이는 방법에 대한 구체적인 실무적 답을 제공하지 않습니다."
+ },
+ {
+  "q": 14,
+  "page": 174,
+  "score": 0,
+  "reason": "제시된 페이지는 주로 가격 경쟁(치킨게임)과 가격 일관성 유지에 대해 다루고 있으며, 가격 민감도를 측정하여 적정 가격을 결정하는 구체적인 방법이나 해결책을 제공하지 않습니다."
+ },
+ {
+  "q": 24,
+  "page": 224,
+  "score": 1,
+  "reason": "The page introduces a framework for implementing innovation processes and governance, but it does not yet provide the specific details on how to design the customer-validation review process or who should make the final decision."
+ },
+ {
+  "q": 29,
+  "page": 148,
+  "score": 2,
+  "reason": "The page directly explains that integrating marketing and sales into the innovation team from the start is crucial to prevent poor value communication, which happens when they are brought in too late."
+ },
+ {
+  "q": 4,
+  "page": 52,
+  "score": 2,
+  "reason": "The page directly explains that considering monetization and pricing early in the concept stage ensures market viability, makes the innovation process reliable, and prevents late-stage struggles."
+ },
+ {
+  "q": 15,
+  "page": 27,
+  "score": 1,
+  "reason": "The page introduces relevant concepts like 'feature shock' and 'minivation' (underpricing), but it does not provide the specific methodology for measuring willingness to pay or integrating it into a business case."
+ },
+ {
+  "q": 8,
+  "page": 69,
+  "score": 1,
+  "reason": "The page introduces the concept of customer segmentation and warns against its misuse, which is related to the topic, but it does not provide specific methods for verifying if the sales team can practically execute the segmentation."
+ },
+ {
+  "q": 6,
+  "page": 57,
+  "score": 1,
+  "reason": "The page explains the benefits of having early willingness-to-pay talks to shape product features, but it does not provide the specific methodology on how to conduct these conversations."
+ },
+ {
+  "q": 18,
+  "page": 55,
+  "score": 0,
+  "reason": "제시된 페이지는 신제품 개발 초기 단계에서의 지불 용의향(WTP) 파악을 다루고 있어, 실제 영업 협상 시의 가격 제시 및 할인 대응 전략에 대한 질문에는 도움이 되지 않습니다."
+ },
+ {
+  "q": 12,
+  "page": 110,
+  "score": 2,
+  "reason": "이 페이지는 사용량에 따라 요금을 다르게 책정하는 구간별 요금제(tier-based)와 사용량 기반 요금제(volume-based)의 구체적인 설계 방법을 직접적으로 설명하고 있습니다."
+ },
+ {
+  "q": 10,
+  "page": 227,
+  "score": 1,
+  "reason": "The page is partially useful as it suggests establishing a dedicated monetization team to handle pricing decisions, but it focuses on scaling the organizational process rather than how to choose a specific monetization model for a new feature."
+ },
+ {
+  "q": 5,
+  "page": 156,
+  "score": 0,
+  "reason": "제시된 페이지는 일반적인 행동주의 가격 책정 기법(타협 효과, 앵커링)을 다룰 뿐, 신흥 시장의 특성이나 가격 민감 시장을 위한 제품 기능 조정(feature reduction)에 대한 구체적인 해결책을 제공하지 않습니다."
+ },
+ {
+  "q": 10,
+  "page": 111,
+  "score": 1,
+  "reason": "The page is partly useful as it highlights the importance of how you charge and lists five key monetization models, though the specific selection process is detailed in the rest of the chapter."
+ },
+ {
+  "q": 20,
+  "page": 123,
+  "score": 2,
+  "reason": "The page directly explains how to determine if raising prices will increase profits by calculating price elasticity and the profit curve based on willingness-to-pay and cost data."
+ },
+ {
+  "q": 25,
+  "page": 101,
+  "score": 0,
+  "reason": "The page discusses subscription models and dynamic pricing (such as Uber's surge pricing), but does not address whether lowering prices can expand demand by competing with alternatives like public transit or walking."
+ },
+ {
+  "q": 6,
+  "page": 62,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining how to conduct customer conversations through direct questioning, simulated purchase scenarios, and framing the discussion as a 'value talk' to understand both pricing and product value drivers."
+ },
+ {
+  "q": 7,
+  "page": 76,
+  "score": 1,
+  "reason": "The page provides specific principles on how to segment customers using WTP and needs, but it does not address the consequences of segmenting too late."
+ },
+ {
+  "q": 24,
+  "page": 193,
+  "score": 1,
+  "reason": "The page describes shifting from an internal R&D focus to a customer-first approach by sending teams into the field, but it does not detail how to establish a formal review process or specify who should make the final decision to start."
+ },
+ {
+  "q": 20,
+  "page": 24,
+  "score": 0,
+  "reason": "이 페이지는 제품 개발 단계에서 고객의 지불 의향을 반영하는 방법에 초점을 맞추고 있어, 이미 출시되어 잘 팔리는 제품의 가격 인상 전략이나 고객 반발 최소화 방안에 대한 답변을 제공하지 않습니다."
+ },
+ {
+  "q": 13,
+  "page": 102,
+  "score": 1,
+  "reason": "The page is partly useful as it discusses leveraging volatility in price elasticity through dynamic pricing to optimize revenue, though it does not specifically address how to use the elasticity curve for new products to increase pricing power."
+ },
+ {
+  "q": 24,
+  "page": 127,
+  "score": 1,
+  "reason": "The page introduces the concept of building an 'outside-in business case' based on customer willingness to pay to validate demand, but it does not specify who should make the final decision to proceed."
+ },
+ {
+  "q": 5,
+  "page": 174,
+  "score": 0,
+  "reason": "제시된 페이지는 가격 경쟁 및 가격 전쟁 방지에 대해 다루고 있을 뿐, 신흥 시장을 타깃으로 한 신제품의 가격 책정이나 기능 조정(feature stripping)에 대한 구체적인 전략을 제공하지 않습니다."
+ },
+ {
+  "q": 20,
+  "page": 38,
+  "score": 1,
+  "reason": "The page provides examples of how demand exceeding supply or high secondary market prices indicate underpricing, which helps determine if a price increase is possible, but it does not detail how to gradually raise prices while minimizing customer backlash."
+ },
+ {
+  "q": 26,
+  "page": 67,
+  "score": 1,
+  "reason": "이 페이지는 신제품 개발 시 고객의 지불 의향(WTP)을 파악하는 구체적인 질문들을 제시하여 유용하지만, 브랜드 평판 유지나 중간 판매점 관리에 대한 내용은 다루지 않습니다."
+ },
+ {
+  "q": 2,
+  "page": 59,
+  "score": 2,
+  "reason": "이 페이지는 고객의 지불 의향(WTP)을 조사하여 기꺼이 지불할 용의가 있는 기능만 남기고 나머지는 제외하라는 명확한 기준과 해결책을 제시합니다."
+ },
+ {
+  "q": 15,
+  "page": 29,
+  "score": 1,
+  "reason": "The page is partly useful as it highlights the importance of using willingness-to-pay data in the business case (Rule 6), but it does not provide the specific methodology for measuring feature-level willingness-to-pay."
+ },
+ {
+  "q": 26,
+  "page": 24,
+  "score": 1,
+  "reason": "이 페이지는 제품 개발 전에 고객의 지불 의향(WTP)을 파악해야 한다는 핵심 개념을 제시하여 관련성이 있으나, 브랜드 이미지 유지나 중간 판매점 관리 및 꾸준한 측정 방법에 대한 구체적인 답변은 제공하지 않습니다."
+ },
+ {
+  "q": 19,
+  "page": 211,
+  "score": 0,
+  "reason": "The page discusses qualitative 'WTP talks' and forming a monetization task force for an early-stage startup, but it does not address alternative large-scale experiments or survey methodologies to use when live price testing is restricted."
+ },
+ {
+  "q": 0,
+  "page": 59,
+  "score": 2,
+  "reason": "이 페이지는 제품 출시 전에 고객이 실제로 지불할 의사가 있는 기능이 무엇인지 확인하는 '지불 의향 대화(WTP Talk)'의 중요성과 이를 통해 개발 우선순위를 정해 손실을 줄인 구체적인 사례를 제시합니다."
+ },
+ {
+  "q": 3,
+  "page": 119,
+  "score": 0,
+  "reason": "제시된 페이지는 고가 침투 가격 결정(Skimming) 전략과 가격 설정 원칙에 대해 설명하고 있을 뿐, 원가 가산 방식(Cost-plus)과 가치 기반 방식(Value-based)의 차이점에 대해서는 다루지 않습니다."
+ },
+ {
+  "q": 4,
+  "page": 23,
+  "score": 2,
+  "reason": "이 페이지는 제품을 만들기 훨씬 전부터 고객의 지불 의향과 가격을 중심에 두고 기획해야 성공할 수 있으며, 그렇지 않으면 실패한다는 점을 포르쉐와 피아트 크라이슬러의 대조적 사례를 통해 직접적으로 설명합니다."
+ },
+ {
+  "q": 29,
+  "page": 137,
+  "score": 1,
+  "reason": "The page is partly useful because it highlights the need to involve marketing and sales early in the development process to effectively communicate value, but it does not fully explain the broader role of cross-functional teams or the specific problems of excluding them."
+ },
+ {
+  "q": 10,
+  "page": 73,
+  "score": 1,
+  "reason": "The page discusses segmenting customers based on their needs, value, and willingness to pay to design and price offerings, which is related but does not directly answer how to choose the specific monetization or payment model for long-term retention."
+ },
+ {
+  "q": 28,
+  "page": 227,
+  "score": 0,
+  "reason": "The page discusses scaling a monetization process across a multiproduct firm by piloting it with select products, but it does not address why deep validation of a few product candidates is superior to shallow validation of many."
+ },
+ {
+  "q": 9,
+  "page": 157,
+  "score": 2,
+  "reason": "The page directly explains how to make a bundle more attractive by using an anchor option to frame part of the bundle as a freebie, illustrated by The Economist experiment."
+ },
+ {
+  "q": 23,
+  "page": 49,
+  "score": 1,
+  "reason": "이 페이지는 초기 혁신 단계에서 수익화 논의를 기피하는 기존의 잘못된 마인드셋을 지적하여 질문과 관련이 있으나, 구체적인 프로세스 혁신 방안은 제시하지 않습니다."
+ },
+ {
+  "q": 18,
+  "page": 35,
+  "score": 0,
+  "reason": "The page discusses the negative consequences of price slashing due to 'feature shock' but does not provide strategies on how to set an initial price anchor to negotiate higher final sales prices."
+ },
+ {
+  "q": 26,
+  "page": 60,
+  "score": 1,
+  "reason": "이 페이지는 고객의 지불 의향(WTP)을 파악하기 위한 초기 가격 대화의 중요성과 파악해야 할 정보에 대해 설명하고 있어 유용하지만, 중간 판매점 관리나 브랜드 평판 유지에 대한 구체적인 방법은 다루지 않습니다."
+ },
+ {
+  "q": 14,
+  "page": 166,
+  "score": 0,
+  "reason": "제시된 페이지는 초기 시장 반응이 좋지 않을 때 가격을 인하하지 않고 버텨야 한다는 '가격 일관성'을 강조할 뿐, 가격 민감도가 높은 상황에서 적정 가격 수준을 어떻게 결정해야 하는지에 대한 방법론은 제공하지 않습니다."
+ },
+ {
+  "q": 12,
+  "page": 107,
+  "score": 1,
+  "reason": "The page discusses general principles for choosing and testing monetization models, but does not specifically explain how to design a usage-based pricing structure."
+ },
+ {
+  "q": 18,
+  "page": 158,
+  "score": 1,
+  "reason": "The page advises starting with a high price because you can always lower it later, and explains how a high price signals quality, which partly answers how to position initial pricing to accommodate future discounts."
+ },
+ {
+  "q": 28,
+  "page": 220,
+  "score": 2,
+  "reason": "The page directly explains that focusing resources on fewer, deeply validated products lowers risk and increases upside by allowing the company to eliminate weak projects early based on evidence."
+ },
+ {
+  "q": 0,
+  "page": 67,
+  "score": 2,
+  "reason": "The page provides the key advice to the question by emphasizing the need to have serious willingness-to-pay (WTP) discussions with customers early in the product development process to identify which features they truly value."
+ },
+ {
+  "q": 25,
+  "page": 199,
+  "score": 1,
+  "reason": "The page introduces Uber's penetration pricing strategy, which is highly relevant to the question, but it does not yet explain how lowering prices affects competition with alternative transportation methods like public transit or walking."
+ },
+ {
+  "q": 10,
+  "page": 28,
+  "score": 2,
+  "reason": "The page directly outlines key rules for successful monetization, specifically advising on how to choose the right revenue model and develop a long-term pricing strategy for new products."
+ },
+ {
+  "q": 20,
+  "page": 117,
+  "score": 2,
+  "reason": "The page directly answers the question by explaining how to use a price elasticity curve to quantify the trade-offs between raising prices, volume loss, and overall profit."
+ },
+ {
+  "q": 17,
+  "page": 119,
+  "score": 1,
+  "reason": "The page is partially useful as it discusses managing high-end and low-end product versions through skimming, but it does not address psychological price thresholds or how to structure features across tiers to prevent cannibalization."
+ },
+ {
+  "q": 21,
+  "page": 174,
+  "score": 2,
+  "reason": "이 페이지는 매출이 예상보다 낮을 때 가격 인하 대신 교차 기능적 진단을 통해 실제 원인(예: 가치 전달의 문제)을 파악하고, 예측 모델 업데이트 등의 비가격적 조치로 대응해야 한다는 핵심 조언을 직접적으로 제공합니다."
+ },
+ {
+  "q": 14,
+  "page": 123,
+  "score": 2,
+  "reason": "이 페이지는 가격 변화에 따른 수요 변화(가격 탄력성)와 비용 데이터를 분석하여 이익이나 매출을 극대화하는 최적의 가격을 결정하는 방법을 구체적인 예시와 함께 직접적으로 설명합니다."
+ },
+ {
+  "q": 20,
+  "page": 122,
+  "score": 1,
+  "reason": "The page introduces price elasticity as the key metric to determine how price changes affect sales volume, which is highly relevant to deciding whether to raise prices, though it does not fully detail how to manage customer backlash."
+ },
+ {
+  "q": 14,
+  "page": 175,
+  "score": 1,
+  "reason": "이 페이지는 적절한 가격 수준을 결정하는 구체적인 방법론을 제시하지는 않지만, 가격 변동에 따른 수요 변화를 단순한 가격 문제로 단정 짓기 전에 품질이나 커뮤니케이션 등 비가격적 요인을 먼저 점검하라는 조언을 제공하여 부분적으로 도움이 됩니다."
+ },
+ {
+  "q": 17,
+  "page": 82,
+  "score": 1,
+  "reason": "이 페이지는 저가형 상품에서 기능을 과감히 덜어내어 프리미엄 상품의 가치를 지키는 제품 구성 전략을 제시하지만, 심리적 가격 임계점을 파악하는 방법에 대한 내용은 다루지 않습니다."
+ },
+ {
+  "q": 5,
+  "page": 117,
+  "score": 1,
+  "reason": "The page is partly useful as it explains the penetration pricing strategy for gaining market share, but it does not address how to decide which product features to reduce or maintain."
+ },
+ {
+  "q": 24,
+  "page": 128,
+  "score": 1,
+  "reason": "이 페이지는 신제품 개발 전 고객의 지불 의향을 조사하고 검토하는 기업 사례를 제시하여 관련이 있으나, 구체적인 절차 설계나 최종 결정권자에 대한 직접적인 해답은 제공하지 않습니다."
+ },
+ {
+  "q": 1,
+  "page": 52,
+  "score": 2,
+  "reason": "이 페이지는 제품 설계 전에 고객의 지불 의향을 파악하는 것이 왜 혁신의 성공률을 높이고 사후 수익 추정의 불확실성을 줄이는지 직접적으로 설명하고 있습니다."
+ },
+ {
+  "q": 26,
+  "page": 62,
+  "score": 2,
+  "reason": "이 페이지는 고객의 지불 의향을 조사할 때 브랜드 이미지를 좋게 유지할 수 있도록 '가격'이 아닌 '가치에 대한 대화(value talk)'로 프레이밍하여 접근하라는 핵심적인 해결책을 제시합니다."
+ },
+ {
+  "q": 6,
+  "page": 67,
+  "score": 1,
+  "reason": "The page is highly relevant as it emphasizes having 'Willingness-to-Pay' talks early and aligning product features with WTP, but it primarily lists diagnostic questions for executives rather than providing a detailed guide on how to conduct those customer conversations."
+ },
+ {
+  "q": 25,
+  "page": 38,
+  "score": 0,
+  "reason": "제시된 페이지는 제품 가격을 너무 낮게 책정하여 수익 기회를 놓치는 '미니베이션(minivations)' 사례를 다룰 뿐, 가격 인하를 통해 대중교통이나 도보 같은 대체재의 수요를 흡수할 수 있는지에 대한 질문에는 답하지 않습니다."
+ },
+ {
+  "q": 9,
+  "page": 155,
+  "score": 0,
+  "reason": "이 페이지는 번들 가격의 커뮤니케이션이나 할인 표현 방식이 아닌, 고가 제품을 통한 앵커링과 제품 라인업 구성에 대해 다루고 있어 질문에 도움이 되지 않습니다."
+ },
+ {
+  "q": 11,
+  "page": 95,
+  "score": 0,
+  "reason": "이 페이지는 동적 가격 책정(dynamic pricing)을 혁신적인 수익 모델 중 하나로 언급만 할 뿐, 실시간 수요와 공급에 따른 가격 조정 방식이나 그 효과에 대한 구체적인 설명은 제공하지 않습니다."
+ },
+ {
+  "q": 27,
+  "page": 221,
+  "score": 1,
+  "reason": "The page discusses using clinical and economic value data to assess pricing and market access in early drug development, but it does not specifically mention the role of country teams."
+ },
+ {
+  "q": 5,
+  "page": 119,
+  "score": 0,
+  "reason": "The page discusses skimming strategies and high-end product launches, which does not address how to price products or manage features for price-sensitive emerging markets like India."
+ },
+ {
+  "q": 14,
+  "page": 122,
+  "score": 2,
+  "reason": "이 페이지는 가격 변동에 따른 수요 변화를 파악하고 가격을 최적화할 수 있는 핵심 도구인 '가격 탄력성(Price Elasticity)'의 개념과 공식을 직접적인 해결책으로 제시합니다."
+ },
+ {
+  "q": 2,
+  "page": 81,
+  "score": 2,
+  "reason": "제시된 페이지는 과도한 기능 추가(feature stuffing)의 위험성을 경고하고, 수익성을 지키기 위해 제품 간 명확한 경계(fences)를 세워 기능을 제한해야 한다는 핵심 조언을 담고 있습니다."
+ },
+ {
+  "q": 3,
+  "page": 61,
+  "score": 1,
+  "reason": "제시된 페이지는 고객 가치 기반 가격 책정과 지불 의향(WTP) 조사 방법을 다루고 있어 관련이 있으나, 원가 가산(Cost-plus) 방식과의 차이점을 직접 비교하여 설명하지는 않습니다."
+ },
+ {
+  "q": 2,
+  "page": 35,
+  "score": 1,
+  "reason": "The page perfectly describes the team's problem of 'feature shock' and subsequent price slashing, but it does not provide the specific framework or solution on how to limit features before launch."
+ },
+ {
+  "q": 25,
+  "page": 97,
+  "score": 0,
+  "reason": "The page discusses Michelin's pay-per-mile B2B pricing model for tires, which is unrelated to whether lowering prices can expand demand by competing with alternative transportation methods like public transit or walking."
+ },
+ {
+  "q": 24,
+  "page": 226,
+  "score": 2,
+  "reason": "이 페이지는 의사결정을 책임질 '수익화 영웅(monetization hero)'의 역할과 개발팀의 독주를 막기 위해 '아니오'라고 말할 수 있는 권한 부여, 그리고 고객의 가치와 지불 의향(WTP)을 조사하는 검토 절차를 직접적으로 제시합니다."
+ },
+ {
+  "q": 18,
+  "page": 61,
+  "score": 1,
+  "reason": "이 페이지는 제품 개발 단계에서 고객이 생각하는 '비싼 가격'의 기준을 파악하는 조사 방법을 다루고 있어 초기 가격 기준을 설정하는 데 일부 참고가 될 수 있으나, 실제 영업 상황에서의 할인 협상 전략이나 가격 제시 기법에 대한 직접적인 해답은 제공하지 않습니다."
+ },
+ {
+  "q": 28,
+  "page": 14,
+  "score": 0,
+  "reason": "제공된 페이지 내용이 없어 질문에 대한 답변이나 유용한 정보를 얻을 수 없습니다."
+ },
+ {
+  "q": 18,
+  "page": 29,
+  "score": 1,
+  "reason": "이 페이지는 할인 통제(Rule 9)와 고객의 심리 이해(Rule 8) 등 질문과 관련된 개념을 언급하고 있으나, 구체적으로 초기 가격을 어떻게 제시해야 하는지에 대한 상세한 방법론은 제공하지 않습니다."
+ },
+ {
+  "q": 5,
+  "page": 115,
+  "score": 1,
+  "reason": "이 페이지는 시장 점유율 확대를 위한 가격 책정 목표 설정과 그에 따른 절충안(trade-off)을 다루고 있어 부분적으로 유용하지만, 신흥 시장의 특수성이나 구체적인 제품 기능 조정에 대한 내용은 포함되어 있지 않습니다."
+ },
+ {
+  "q": 18,
+  "page": 152,
+  "score": 2,
+  "reason": "이 페이지는 고객의 비합리적 심리를 활용해 최종 판매가를 높이고 설득력을 높이는 '가격 앵커(Price Anchors)'의 개념과 원리를 직접적으로 설명하고 있습니다."
+ },
+ {
+  "q": 14,
+  "page": 124,
+  "score": 2,
+  "reason": "The page directly addresses the team's situation by explaining price elasticity (steep demand curves) and advises that they must measure or estimate their product's specific elasticity curve to determine the optimal price."
+ },
+ {
+  "q": 20,
+  "page": 120,
+  "score": 1,
+  "reason": "이 페이지는 가격 인상(Price increases) 여부와 빈도를 결정해야 한다는 원칙을 언급하여 질문과 관련이 있으나, 고객 반발을 최소화하며 가격을 올릴 수 있는지 판단하는 구체적인 방법은 제공하지 않습니다."
+ },
+ {
+  "q": 16,
+  "page": 61,
+  "score": 1,
+  "reason": "이 페이지는 고객의 지불 의향(WTP)과 기능의 가치를 초기에 확인해야 한다는 점을 강조하며 고객에게 던져야 할 질문들을 제시하고 있지만, 제품·마케팅·영업 팀이 내부적으로 맞춰야 할 핵심 질문에 대해서는 직접적으로 다루지 않아 부분적으로만 유용합니다."
+ },
+ {
+  "q": 24,
+  "page": 58,
+  "score": 2,
+  "reason": "The page directly illustrates how a CEO can act as the decision-maker to halt inside-out development and outlines a process for validating customer willingness to pay before building the product."
+ },
+ {
+  "q": 9,
+  "page": 120,
+  "score": 0,
+  "reason": "제시된 페이지는 번들 가격 커뮤니케이션이나 할인 표현 방식에 대한 내용 대신 가격 책정 원칙(가격 끝자리, 가격 하한선 등)만을 다루고 있어 질문에 도움이 되지 않습니다."
+ },
+ {
+  "q": 16,
+  "page": 65,
+  "score": 2,
+  "reason": "The page directly answers the question by advising that cross-functional teams (product, sales, and marketing) must align early on 'Willingness-to-Pay' (WTP) conversations and ask 'why' customers value and would pay for the product."
+ },
+ {
+  "q": 28,
+  "page": 37,
+  "score": 0,
+  "reason": "이 페이지는 가치 기반 가격 책정의 부재로 인한 '미니베이션(Minivation)' 사례를 다룰 뿐, 여러 신제품 후보 중 소수를 깊게 검증하는 것이 예산 및 시간 배분에 왜 유리한지에 대한 질문에는 답하지 않습니다."
+ },
+ {
+  "q": 28,
+  "page": 232,
+  "score": 0,
+  "reason": "제시된 페이지는 가격 책정 시 지나친 정밀함의 함정이나 데이터 관리 등 혁신 수익화의 일반적인 오류를 다룰 뿐, 여러 신제품 후보 중 소수를 깊게 검증해야 하는 이유나 예산 배분 기준에 대해서는 설명하지 않습니다."
+ },
+ {
+  "q": 9,
+  "page": 114,
+  "score": 0,
+  "reason": "The page discusses high-level pricing strategy documentation and segment-specific pricing, but does not address bundle pricing communication or how to frame discounts to customers."
+ },
+ {
+  "q": 23,
+  "page": 229,
+  "score": 1,
+  "reason": "이 페이지는 기존의 신제품 개발 방식에서 벗어나 새로운 수익화 프로세스를 정착시키기 위한 변화 관리와 조직적 실행 방안을 다루고 있어 부분적으로 유용합니다."
+ }
+]
