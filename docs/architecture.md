@@ -7,7 +7,7 @@ product-advisor helps a product team reason about pricing, willingness to pay (W
 | Component | Runs on | Responsibility |
 |---|---|---|
 | Skill `product-advisor` | Each user's Claude Code | Loads when a conversation turns to pricing, WTP, PMF, GTM, packaging, or sales. Maps the situation to the book's frameworks with a concept map, tells Claude which chapters to read and which terms to search, points to team records in Notion, Google Drive, and Slack, and defines the one-page output for evaluating a project handed down without a business case |
-| MCP server `product-advisor` | One Docker host (a Synology NAS) | Extracts the PDF, builds a search index and section summaries, and serves `list_sections`, `search_book`, and `get_section` over HTTP to holders of a valid key |
+| MCP server `product-advisor` | One Docker host | Extracts the PDF, builds a search index and section summaries, and serves `list_sections`, `search_book`, and `get_section` over HTTP to holders of a valid key |
 | OpenRouter | External API | Embeds the book and each query (`qwen/qwen3-embedding-4b`) and writes section summaries once (`anthropic/claude-haiku-5.5`) |
 | Team systems (Notion, Drive, Slack, a CRM) | Their own services | Hold customers, deals, interviews, and hypotheses. Each user reads them with their own access rights; the server never sees them |
 
@@ -109,7 +109,7 @@ A first build takes about three minutes and costs a few cents in OpenRouter usag
 | Chunks of whole paragraphs within one section and one page | Results and citations are pages, so a chunk that crossed a page break credited only its first page; within-page structure chunks ranked as well as page windows and name the matching section correctly |
 | No section-title prefix on chunks | It did not improve ranking in a blind pooled evaluation and biases retrieval toward titles |
 | Endnotes linked, not searched | A note alone is a citation without the claim it supports; returned as `sources`, it attributes the claim instead |
-| One server on a NAS, keys per person | Teammates install only the plugin; the book, the OpenRouter key, and the caches stay on one host |
+| One server, keys per person | Teammates install only the plugin; the book, the OpenRouter key, and the caches stay on one host |
 | Section summaries for excerpt keys | Lets teammates without the book answer chapter-wide questions without receiving the chapter's text |
 | No team data in the server | Keeps the server stateless and leaves every team record under its original system's permissions |
 
@@ -120,7 +120,7 @@ A first build takes about three minutes and costs a few cents in OpenRouter usag
 | `mcp/server.py` | The server: extraction, indexing, search, summaries, keys, HTTP app, key commands |
 | `mcp/test_server.py` | Tests against the real PDF and OpenRouter |
 | `mcp/Dockerfile`, `docker-compose.yml` | Container build and service definition |
-| `scripts/nas.sh` | Deploys to and operates a Docker host over ssh |
+| `scripts/deploy.sh` | Deploys to and operates a Docker host over ssh |
 | `skills/product-advisor/SKILL.md` | The skill |
 | `.claude-plugin/`, `.mcp.json` | Plugin manifest, marketplace entry, and the MCP connection users install |
 | `eval/` | Evaluation scripts and recorded results; see [eval/README.md](../eval/README.md) |
