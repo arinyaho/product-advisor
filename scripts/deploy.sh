@@ -1,37 +1,37 @@
 #!/usr/bin/env bash
-# Deploy and operate the book MCP server on a Docker host (a Synology NAS) from any machine that can reach it.
+# Deploy and operate the MCP server on a Docker host from any machine that can ssh into it.
 #
-#   scripts/nas.sh HOST deploy BOOK.pdf         copy the server and the book, build, start, wait until ready
-#   scripts/nas.sh HOST issue-key NAME --days N [--scope full|excerpt]
-#   scripts/nas.sh HOST renew-key NAME --days N
-#   scripts/nas.sh HOST revoke-key NAME
-#   scripts/nas.sh HOST list-keys
-#   scripts/nas.sh HOST logs | status | down
+#   scripts/deploy.sh HOST deploy BOOK.pdf      copy the server and the PDF, build, start, wait until ready
+#   scripts/deploy.sh HOST issue-key NAME --days N [--scope full|excerpt]
+#   scripts/deploy.sh HOST renew-key NAME --days N
+#   scripts/deploy.sh HOST revoke-key NAME
+#   scripts/deploy.sh HOST list-keys
+#   scripts/deploy.sh HOST logs | status | down
 #
-# HOST is an ssh destination such as admin@nas.local, or "local" to run on this machine.
+# HOST is an ssh destination such as user@host, or "local" to run on this machine.
 # Environment:
-#   NAS_DIR             project directory on the host (default /volume1/docker/product-advisor)
-#   DOCKER              docker command on the host (default "sudo /usr/local/bin/docker" over ssh, where DSM
-#                       keeps it outside the ssh and sudo PATH; "docker" for local)
+#   DEPLOY_DIR          project directory on the host; a relative path is under the home directory (default product-advisor)
+#   DOCKER              docker command on the host, such as "sudo docker" (default docker)
 #   PORT                host port the container listens on, bound to 127.0.0.1 (default 8765)
 #   OPENROUTER_API_KEY  needed only on the first deploy, to write the host's .env
 set -euo pipefail
 
-[ $# -ge 2 ] || { sed -n '2,18p' "$0"; exit 2; }
+[ $# -ge 2 ] || { sed -n '2,16p' "$0"; exit 2; }
 HOST=$1; CMD=$2; shift 2
-DIR=${NAS_DIR:-/volume1/docker/product-advisor}
+DIR=${DEPLOY_DIR:-product-advisor}
 PORT=${PORT:-8765}
-if [ "$HOST" = local ]; then DOCKER=${DOCKER:-docker}; else DOCKER=${DOCKER:-sudo /usr/local/bin/docker}; fi
+DOCKER=${DOCKER:-docker}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 
 # Run a shell command on the host; stdin is passed through. on_tty also allocates a terminal for a sudo prompt.
-on() { if [ "$HOST" = local ]; then sh -c "$1"; else ssh "$HOST" "$1"; fi; }
-on_tty() { if [ "$HOST" = local ]; then sh -c "$1"; else ssh -t "$HOST" "$1"; fi; }
+# Both start in the home directory, so a relative DEPLOY_DIR means the same place either way.
+on() { if [ "$HOST" = local ]; then (cd && sh -c "$1"); else ssh "$HOST" "$1"; fi; }
+on_tty() { if [ "$HOST" = local ]; then (cd && sh -c "$1"); else ssh -t "$HOST" "$1"; fi; }
 compose() { echo "cd '$DIR' && $DOCKER compose --env-file deploy.env $*"; }
 
 case "$CMD" in
 deploy)
-    PDF=${1:?usage: nas.sh HOST deploy BOOK.pdf}
+    PDF=${1:?usage: deploy.sh HOST deploy BOOK.pdf}
     [ -f "$PDF" ] || { echo "no such file: $PDF" >&2; exit 1; }
     on "mkdir -p '$DIR/data'"
     echo "copying server files to $HOST:$DIR"
@@ -62,7 +62,7 @@ while [ \$i -lt 120 ]; do
     i=\$((i + 1))
     sleep 5
 done
-echo 'not ready after 10 minutes; check: nas.sh $HOST logs' >&2
+echo 'not ready after 10 minutes; check: deploy.sh $HOST logs' >&2
 exit 1"
     echo "ready on 127.0.0.1:$PORT of $HOST (point the reverse proxy at it)"
     if on "test ! -s '$DIR/data/keys.json' || grep -q '^{}$' '$DIR/data/keys.json'"; then
@@ -77,5 +77,5 @@ issue-key | renew-key | revoke-key | list-keys)
 logs) on_tty "$(compose logs --tail 50)" ;;
 status) on_tty "$(compose ps)" ;;
 down) on_tty "$(compose down)" ;;
-*) sed -n '2,18p' "$0"; exit 2 ;;
+*) sed -n '2,16p' "$0"; exit 2 ;;
 esac
