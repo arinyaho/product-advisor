@@ -1,5 +1,7 @@
 # Evaluation
 
+TL;DR: The three-book release uses `three_book_cases.json`, frozen before retrieval, and `three_books.py`. It checks exact expected source identities, strict book filters, source locations, continuation, unsupported questions, and identical 4,000-token evidence budgets in `mix` and `naive`. See [the library guide](../docs/three-book-library.md). Older evaluations below concern the earlier single-book implementation.
+
 Scripts that reproduce the measurements in [docs/experiments.md](../docs/experiments.md), and the recorded results of the pooled evaluation. Nothing here contains book text: questions are written by a model, results hold page numbers and section titles, and judgments hold a one-sentence reason.
 
 All scripts need `BOOK_PDF` (the book's PDF) and `OPENROUTER_API_KEY`, and run with this directory's requirements:

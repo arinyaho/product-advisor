@@ -1,8 +1,8 @@
 # product-advisor
 
-A Claude Code plugin that advises a product team whenever a conversation turns to pricing, willingness to pay, product-market fit, go-to-market, packaging, or sales. A skill maps the situation to established frameworks and tells Claude when to look things up; an MCP server on one Docker host searches and reads the reference material for anyone holding a key.
+TL;DR: Product Advisor searches three source books for customer selection, value validation, founder sales, purchase decisions, packaging, and pricing. A versioned LightRAG library serves source evidence through the existing authenticated MCP endpoint. Search defaults to all books and `mix`; `naive` remains available for comparison.
 
-The repository holds no reference text. The PDFs, the key store, and the caches live only in the server's `data/` directory.
+The repository and Docker image contain no book files. Private PDFs, EPUB, source catalogs, indices, keys, and caches stay in the mounted `data/` directory. See [three-book operation and verification](docs/three-book-library.md).
 
 ## What it provides
 
@@ -12,9 +12,11 @@ The repository holds no reference text. The PDFs, the key store, and the caches 
 | MCP server `product-advisor` | Lists, searches, and reads the reference material in Korean or English; each result names its page and section |
 | Keys | One key per person with an expiry and a scope: `full` for whole pages and sections, `excerpt` for short passages and summaries |
 
-The server keeps no team data and no queries; customer, deal, and hypothesis records stay in the team's own systems.
+The server keeps no team records or query history. Search requests go to OpenRouter for embedding and reranking but are never indexed. The three-book library returns book-specific source chunks and locations without generating an answer. Model-extracted graph links support navigation; they are not author quotations or verified customer facts. Manual concept maps, company ingestion, customer memory, and CRM are outside this release. `retrieve_decision_context` remains callable for compatibility and returns source evidence with no manual framework cards in library mode.
 
 ## Quick start
+
+For the three-book library, prepare and build an isolated release, seal it, run the frozen evaluations, and stage it using `scripts/deploy-library.py`. Activate it on the existing host and accept only after real MCP calls pass. [The library guide](docs/three-book-library.md) includes the commands and rollback procedure. The single-PDF command below remains the legacy installation path; do not use it to update an active three-book release.
 
 Deploy from any machine that can ssh into a Docker host, with the reference PDF and an OpenRouter key made for this server:
 

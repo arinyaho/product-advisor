@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "provenance": "curated_application",
+  "citation_convention": "PDF pages, matching search_book and get_section",
+  "concepts": [
+    {
+      "id": "failure_patterns",
+      "name": "Feature shock, minivation, hidden gem, undead",
+      "aliases": ["제품 실패", "만들 가치", "사업성"],
+      "decision": "Which monetization failure could this proposal create?",
+      "applies_when": "A new product is proposed before demand, configuration, and willingness to pay are established.",
+      "questions": ["Who would pay for which outcome?", "Which observations distinguish lack of demand from the wrong configuration or price?"],
+      "cautions": ["A rejected proposal alone does not establish any one failure pattern."],
+      "pdf_pages": [32, 36, 40, 43],
+      "related": ["willingness_to_pay", "configuration"]
+    },
+    {
+      "id": "willingness_to_pay",
+      "name": "Early willingness-to-pay conversation",
+      "aliases": ["지불 의사", "구매 거절", "파일럿", "유료 전환", "WTP"],
+      "decision": "What outcome will this customer pay for, and under which conditions?",
+      "applies_when": "Purchase acceptance, rejection reasons, or willingness to pay remain unconfirmed.",
+      "questions": ["What did the customer say caused the rejection?", "Which outcome has a buyer, budget, and acceptable price?"],
+      "cautions": ["Usage, praise, and a successful pilot do not establish willingness to pay.", "Do not infer that a rejected offer was too expensive without evidence."],
+      "pdf_pages": [60, 61],
+      "related": ["segmentation", "configuration", "living_business_case"]
+    },
+    {
+      "id": "segmentation",
+      "name": "Needs-based segmentation",
+      "aliases": ["고객 세분화", "고객군", "ICP", "고객별 차이"],
+      "decision": "Which customers share needs and willingness to pay?",
+      "applies_when": "One offer is expected to satisfy customers with different priorities.",
+      "questions": ["Which needs and price acceptance differ between customers?", "Who is the buyer and who uses the product?"],
+      "cautions": ["Firm size or industry alone does not establish a needs-based segment."],
+      "pdf_pages": [73, 74, 76],
+      "related": ["willingness_to_pay", "configuration", "value_communication"]
+    },
+    {
+      "id": "configuration",
+      "name": "Leaders, fillers, killers and product configuration",
+      "aliases": ["제품 구성", "패키징", "필수 기능", "기능 축소", "번들"],
+      "decision": "Which features belong in an offer customers will purchase?",
+      "applies_when": "A proposed feature bundle includes capabilities with different customer value.",
+      "questions": ["Which feature drives the purchase?", "Which feature is merely convenient, or deters purchase when customers must pay for it?"],
+      "cautions": ["Feature classification must come from customer evidence, not engineering preference."],
+      "pdf_pages": [87, 88],
+      "related": ["unbundling", "willingness_to_pay", "segmentation"]
+    },
+    {
+      "id": "unbundling",
+      "name": "Unbundling and separate offers",
+      "aliases": ["분리 판매", "LLM 제거", "기존 AI", "일부 기능만", "별도 상품"],
+      "decision": "Would separating capabilities improve purchase acceptance and the business case?",
+      "applies_when": "Customers already have part of a bundled solution or value only a subset.",
+      "questions": ["What benefit would the separate offer deliver to this customer?", "Will the buyer pay for the remaining scope and its operating costs?"],
+      "cautions": ["Removing a component does not by itself prove demand or justify a particular price."],
+      "pdf_pages": [94],
+      "related": ["configuration", "willingness_to_pay", "living_business_case"]
+    },
+    {
+      "id": "monetization_model",
+      "name": "Monetization model and charging metric",
+      "aliases": ["과금", "인당", "구독", "사용량", "성과 기반"],
+      "decision": "How should customers pay for the value delivered?",
+      "applies_when": "Choosing between seat, usage, subscription, or outcome-based charging.",
+      "questions": ["Which charging metric will customers accept?", "How does the metric track customer value and operating cost?"],
+      "cautions": ["Choosing a charging metric does not establish its price level."],
+      "pdf_pages": [107, 108, 109, 110, 111],
+      "related": ["willingness_to_pay", "pricing_strategy"]
+    },
+    {
+      "id": "pricing_strategy",
+      "name": "Pricing strategy and price-setting principles",
+      "aliases": ["가격 전략", "시장 점유율", "프리미엄", "침투 가격"],
+      "decision": "Which pricing goals and response rules should guide the offer?",
+      "applies_when": "A launch price or market position is being chosen.",
+      "questions": ["What objective should the price achieve?", "Which evidence and rules govern changes to that price?"],
+      "cautions": ["A low price is not a substitute for a demonstrated customer benefit."],
+      "pdf_pages": [115, 116],
+      "related": ["monetization_model", "price_integrity", "living_business_case"]
+    },
+    {
+      "id": "living_business_case",
+      "name": "Living business case",
+      "aliases": ["사업 계획", "수익성", "매출 가정", "단위 경제성", "운영 비용"],
+      "decision": "Does measured demand support the economics of this offer?",
+      "applies_when": "Revenue, adoption, price, or cost assumptions drive a build decision.",
+      "questions": ["Which assumptions are measured and which remain hypotheses?", "Which customer evidence would change the investment decision?"],
+      "cautions": ["Update assumptions when evidence changes; distinguish targets from observations."],
+      "pdf_pages": [130, 132],
+      "related": ["willingness_to_pay", "pricing_strategy"]
+    },
+    {
+      "id": "value_communication",
+      "name": "Customer benefit statements and value communication",
+      "aliases": ["제안서", "슬라이드", "고객 효익", "가치 전달", "기술 설명", "영업 자료"],
+      "decision": "How should the offer explain a benefit the customer recognizes?",
+      "applies_when": "A technically accurate feature description does not explain the customer's outcome.",
+      "questions": ["What can the customer accomplish because of this capability?", "Which claim can be supported by customer evidence or a measured result?"],
+      "cautions": ["Do not present unmeasured improvements or proposed capabilities as established results."],
+      "pdf_pages": [143, 144],
+      "related": ["segmentation", "willingness_to_pay", "configuration"]
+    },
+    {
+      "id": "behavioral_pricing",
+      "name": "Behavioral pricing experiments",
+      "aliases": ["앵커링", "가격 표시", "옵션 비교", "행동 가격"],
+      "decision": "Which price presentation helps customers evaluate the offer?",
+      "applies_when": "Testing alternative price presentations or purchase options.",
+      "questions": ["What observable purchase behavior would support this tactic?", "Does the comparison use genuinely comparable offers?"],
+      "cautions": ["Test a tactic rather than assuming a general behavioral effect will hold."],
+      "pdf_pages": [156, 161],
+      "related": ["pricing_strategy", "value_communication"]
+    },
+    {
+      "id": "price_integrity",
+      "name": "Price integrity and discount response",
+      "aliases": ["할인", "가격 인하", "경쟁사 가격", "가격 전쟁"],
+      "decision": "How should the company respond to price pressure?",
+      "applies_when": "A customer requests a discount or a competitor cuts price.",
+      "questions": ["What evidence shows that changing price will change the purchase decision?", "Which response follows the agreed pricing strategy?"],
+      "cautions": ["Do not treat a change in product scope as a like-for-like discount."],
+      "pdf_pages": [167, 169, 173],
+      "related": ["pricing_strategy", "willingness_to_pay"]
+    },
+    {
+      "id": "implementation",
+      "name": "Cross-functional monetization pilot",
+      "aliases": ["조직 도입", "팀 프로세스", "사업화 절차", "제품화"],
+      "decision": "How should the team adopt and test the monetization process?",
+      "applies_when": "Introducing customer-value and pricing decisions into product development.",
+      "questions": ["Which pilot can test the process?", "Who owns customer evidence, product decisions, sales, and financial assumptions?"],
+      "cautions": ["A process pilot needs measurable decisions and cross-functional ownership."],
+      "pdf_pages": [224, 225, 230],
+      "related": ["living_business_case", "willingness_to_pay"]
+    }
+  ]
+}

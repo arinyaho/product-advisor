@@ -9,6 +9,7 @@ Commands:
 """
 
 import argparse
+import asyncio
 import bisect
 import hashlib
 import json
@@ -28,6 +29,8 @@ from datetime import datetime, timedelta, timezone
 from functools import cache
 from pathlib import Path
 
+from advisor_graph import AdvisorIndex, CONCEPT_MAP, MAX_CONTEXT_TOKENS, footer_only_chunks, selected_concepts, source_pages
+
 import numpy as np
 import pymupdf
 from mcp.server.mcpserver import Context, MCPServer
@@ -39,10 +42,14 @@ BOOK_PDF = Path(os.environ.get("BOOK_PDF", DATA_DIR / "book.pdf"))
 KEYS_FILE = DATA_DIR / "keys.json"
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "qwen/qwen3-embedding-4b")
 SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "anthropic/claude-haiku-5.5")
+RERANK_MODEL = os.environ.get("RERANK_MODEL", "cohere/rerank-v3.5")
+MIN_RERANK_SCORE = float(os.environ.get("MIN_RERANK_SCORE", "0.15"))
+MIN_FRAMEWORK_RERANK_SCORE = float(os.environ.get("MIN_FRAMEWORK_RERANK_SCORE", "0.2"))
 MAX_SECTION_PAGES = 10  # one get_section call returns at most this many pages
 MIN_SUMMARY_WORDS = 40  # below this a section's own text is little more than its heading
 CHUNK_WORDS = 200  # ranking unit
 EXCERPT_WORDS = 60  # what an excerpt-scope key gets per hit
+RETRIEVAL_MIN_SIMILARITY = float(os.environ.get("RETRIEVAL_MIN_SIMILARITY", "0.5"))
 SKIP = {"Cover", "Praise for Reference A", "Title Page", "Copyright", "CONTENTS", "INDEX", "Back Cover"}
 
 doc = pymupdf.open(BOOK_PDF)
@@ -147,18 +154,18 @@ def _bm25_rank(query):
 
 # --- OpenRouter: embeddings and section summaries --------------------------------------------
 
-def _openrouter(path, payload):
+def _openrouter(path, payload, *, attempts=8, timeout=120):
     """POST to OpenRouter, retrying rate limits (honoring Retry-After) and server errors."""
     req = urllib.request.Request(
         f"https://openrouter.ai/api/v1/{path}", json.dumps(payload).encode(),
         {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}", "Content-Type": "application/json"},
     )
-    for attempt in range(8):
+    for attempt in range(attempts):
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            if e.code != 429 and e.code < 500 or attempt == 7:
+            if e.code != 429 and e.code < 500 or attempt == attempts - 1:
                 raise
             time.sleep(float(e.headers.get("Retry-After") or 2 ** attempt))
 
@@ -172,8 +179,30 @@ def _embed(texts):
     return v / np.linalg.norm(v, axis=1, keepdims=True)
 
 
+async def _rerank(query, documents, top_n=None):
+    if not documents:
+        return []
+    payload = {"model": RERANK_MODEL, "query": query, "documents": documents, "top_n": top_n or len(documents)}
+    try:
+        response = await asyncio.to_thread(_openrouter, "rerank", payload, attempts=1, timeout=30)
+        results = response["results"]
+        seen = set()
+        for item in results:
+            index, score = item["index"], item["relevance_score"]
+            if type(index) is not int or not 0 <= index < len(documents) or index in seen or type(score) not in (int, float) or not np.isfinite(score) or not 0 <= score <= 1:
+                raise ValueError("Invalid rerank result")
+            seen.add(index)
+        if len(results) != min(payload["top_n"], len(documents)):
+            raise ValueError("Incomplete rerank result")
+        return sorted(results, key=lambda item: item["relevance_score"], reverse=True)
+    except Exception as error:
+        raise RuntimeError(f"OpenRouter rerank failed ({type(error).__name__})") from None
+
+
 INDEX_READY = threading.Event()
 SUMMARIES_READY = threading.Event()
+GRAPH_INDEX = None
+LIBRARY = None
 
 
 @cache
@@ -296,6 +325,7 @@ def _structure_chunks():
 
 
 CHUNKS, EXCERPTS = _structure_chunks()
+FOOTER_ONLY_CHUNKS = footer_only_chunks(doc, CHUNKS + EXCERPTS)
 
 
 SUMMARY_PROMPT = (
@@ -344,11 +374,28 @@ def _summaries():
 
 def _build_until_done():
     """Serve keyword search and refuse section summaries meanwhile; retry until OpenRouter answers."""
+    pointer = DATA_DIR / "library-active.json"
+    if pointer.exists():
+        from library_index import LibraryIndex
+        global LIBRARY
+        active = json.loads(pointer.read_text())
+        version = active["version"]
+        if not re.fullmatch(r"three-books-[a-f0-9]{16}", version):
+            raise ValueError("Invalid active library version")
+        LIBRARY = LibraryIndex(DATA_DIR / "libraries" / version, _openrouter)
+        if _summaries_path().exists():
+            _summaries()
+        LIBRARY.start()
+        return
     for build, name in ((_index, "embedding index"), (_summaries, "section summaries")):
         for attempt in range(1000):
             try:
                 build()
                 print(f"{name} ready", file=sys.stderr)
+                if name == "embedding index":
+                    global GRAPH_INDEX
+                    GRAPH_INDEX = AdvisorIndex(DATA_DIR, CHUNKS, EXCERPTS, _index(), _embed, EMBED_MODEL, FOOTER_ONLY_CHUNKS, RETRIEVAL_MIN_SIMILARITY, rerank=_rerank, minimum_rerank_score=MIN_RERANK_SCORE, minimum_framework_rerank_score=MIN_FRAMEWORK_RERANK_SCORE)
+                    GRAPH_INDEX.start()
                 break
             except Exception as e:  # noqa: BLE001
                 print(f"{name} not built yet: {e}", file=sys.stderr)
@@ -359,6 +406,8 @@ def _best_per_page(items, scores):
     """For each page, the best-scoring chunk that starts on it, with its score."""
     best = {}
     for c, s in zip(items, scores, strict=True):
+        if (c.page, c.text) in FOOTER_ONLY_CHUNKS:
+            continue
         if c.page not in best or s > best[c.page][0]:
             best[c.page] = (float(s), c)
     return best
@@ -366,15 +415,17 @@ def _best_per_page(items, scores):
 
 def _keyword_excerpt(page, query):
     terms = set(_tokens(query))
-    on_page = [c for c in EXCERPTS if c.page == page] or [Chunk(page, " ".join(PAGES[page].split()[:EXCERPT_WORDS]), None)]
+    on_page = [c for c in EXCERPTS if c.page == page and (c.page, c.text) not in FOOTER_ONLY_CHUNKS] or [Chunk(page, " ".join(PAGES[page].split()[:EXCERPT_WORDS]), None)]
     return max(on_page, key=lambda c: sum(w in terms for w in _tokens(c.text))).text
 
 
-def search(query, k, scope):
+def search(query, k, scope, allow_semantic=True):
     """Rank pages by BM25 and embeddings (reciprocal rank fusion); fall back to BM25 when OpenRouter fails."""
     ranked = [_bm25_rank(query)]
     excerpts, matched = {}, {}
     try:
+        if not allow_semantic:
+            raise RuntimeError("keyword-only fallback requested")
         if not INDEX_READY.is_set():
             raise RuntimeError("embedding index is still being built")
         chunk_vecs, excerpt_vecs = _index()
@@ -496,30 +547,133 @@ mcp = MCPServer("product-advisor")
 
 
 @mcp.tool()
-def list_sections() -> list[dict]:
-    """List the book's chapters and subsections (id, level, title, PDF page range)."""
+def list_books() -> list[dict]:
+    """List registered books, verified/unknown edition metadata, source hashes, and index readiness."""
+    if LIBRARY is None:
+        return [{"book_id": "book-a", "title": "Reference A", "index_status": "legacy_single_book", "edition": "See source copyright page; library manifest not active"}]
+    return [{key: book[key] for key in ("book_id", "title", "authors", "edition", "format", "sha256", "metadata_evidence")} | {"index_version": LIBRARY.version, "index_status": "ready" if LIBRARY.ready.is_set() else LIBRARY.error or "building", "chunk_count": len(book["chunks"])} for book in LIBRARY.catalog.books.values()]
+
+
+@mcp.tool()
+def list_sections(book_id: str | None = None, offset: int = 0, limit: int = 100) -> list[dict] | dict:
+    """List chapters and sections. Without book_id, list ALL books with book identities; paginate with next_offset.
+    PDF pages and EPUB document/anchor positions are different source coordinate systems. Limit is at most 100.
+    Original Reference A integer ids retain their meanings; other books use namespaced ids."""
+    if LIBRARY is not None:
+        try:
+            return LIBRARY.catalog.list_sections(book_id, offset, limit)
+        except ValueError as error:
+            raise ToolError(str(error)) from error
+    if book_id not in (None, "book-a"):
+        raise ToolError("Book library is not active")
     return SECTIONS
 
 
 @mcp.tool()
-def get_section(id: int, ctx: Context, start_page: int | None = None) -> str:
-    """Read a chapter or subsection by id from list_sections. Full-scope keys get the text with PDF page markers,
-    up to 10 pages per call; follow the [continued: ...] note with start_page to read on. Excerpt-scope keys get
-    summaries of the section and all its subsections instead. Use this for questions that span a whole chapter."""
+def get_section(id: int | str, ctx: Context, start_page: int | str | None = None, book_id: str | None = None) -> str | dict:
+    """Read source text by section id. Legacy integer calls without book_id still read Reference A.
+    For other calls use the id/book_id from list_sections or search_book, and follow continuation arguments.
+    Full keys receive up to 2,000 words / ten PDF pages; excerpt keys receive at most 60 words per new-book call.
+    EPUB continuation uses a reproducible chunk/word cursor, never invented PDF page numbers."""
     try:
+        if LIBRARY is not None and (book_id is not None or isinstance(id, str) or isinstance(start_page, str)):
+            return LIBRARY.catalog.read(id, book_id, start_page, _bearer(ctx.headers))
+        if book_id not in (None, "book-a") or not isinstance(id, int):
+            raise ValueError("Book library is not active")
         return read_section(id, _bearer(ctx.headers), start_page)
     except (PermissionError, ValueError) as e:
         raise ToolError(str(e)) from e
 
 
+async def graph_search(query, k, scope, mode):
+    if mode not in ("naive", "mix"):
+        raise ValueError("mode must be naive or mix")
+    if not 1 <= k <= 20 or not 3 <= len(query.strip()) <= 8000:
+        raise ValueError("Use k between 1 and 20 and a query between 3 and 8000 characters")
+    if GRAPH_INDEX is None or not GRAPH_INDEX.ready.is_set():
+        result = await asyncio.to_thread(search, query, k, scope)
+        result["retrieval"] = {"requested_mode": mode, "actual_mode": "legacy", "status": "building" if GRAPH_INDEX is None else GRAPH_INDEX.error or "building"}
+        return result, {}
+    try:
+        data = await GRAPH_INDEX.query(query, mode, k)
+    except Exception as error:
+        result = await asyncio.to_thread(search, query, k, scope, False)
+        result["retrieval"] = {"requested_mode": mode, "actual_mode": "legacy", "status": "unavailable", "error_type": type(error).__name__}
+        return result, {}
+    data["chunks"] = [chunk for chunk in data.get("chunks", []) if not any(chunk.get("file_path") == f"book.pdf#page={page}" and chunk.get("content") == text for page, text in FOOTER_ONLY_CHUNKS)]
+    pages = source_pages(data)[:k]
+    result = {"semantic": True, "retrieval": {"requested_mode": mode, "actual_mode": mode, "status": "ready", "rerank": data.get("routing", {}).get("rerank", "not_reported"), "rerank_model": RERANK_MODEL}, "results": []}
+    for page in pages:
+        if page not in CONTENT_PAGES:
+            continue
+        matching = next(chunk for chunk in data["chunks"] if chunk.get("file_path") == f"book.pdf#page={page}")
+        text = PAGES[page] if scope == "full" else " ".join(matching["content"].split()[:EXCERPT_WORDS])
+        section_id = next((chunk.section for chunk in CHUNKS if chunk.page == page and chunk.text == matching["content"]), None)
+        section = next((section["title"] for section in SECTIONS if section["id"] == section_id), None) or _section_of(page)
+        result["results"].append({"page": page, "section": section, "text": text, "sources": _sources(page)})
+    return result, data
+
+
 @mcp.tool()
-def search_book(query: str, ctx: Context, k: int = 5) -> dict:
-    """Search the book by meaning and keywords. Accepts Korean or English and either a described situation
-    ("customers say our product is too expensive") or the book's terms ("willingness to pay",
-    "leaders fillers killers", "good better best", "freemium", "price war").
-    Returns the top k pages with page number and section title, the page text (full scope) or a short
-    passage (excerpt scope), and "sources": the endnotes that page cites, for attributing the book's claims. "semantic": false means only keyword search ran; retry with the book's English terms."""
-    return search(query, k, _bearer(ctx.headers))
+async def search_book(query: str, ctx: Context, k: int = 5, mode: str = "mix", book_id: str | None = None) -> dict:
+    """Search ALL registered books by default, or one book_id using its scoped graph and vector stores.
+    Supports Korean situation questions and English concepts, e.g. 고객이 비싸다고 한다, willingness to pay,
+    ideal customer profile, beachhead market, and decision-making unit. Returns at most k source chunks,
+    with book_id, title, edition, chapter/section, source location, chunk identity, and read_section arguments.
+    Full keys get the matched chunk; excerpt keys get at most 60 words per hit. Follow get_section to read more.
+    mode=mix uses model-extracted graph navigation plus book chunks; naive is vector-only diagnosis.
+    PDF page numbers and EPUB document/anchor/block positions are distinct. Retrieval failures and actual modes
+    are explicit. Korean questions are translated literally to English for retrieval/reranking, without generating
+    an answer; the model and normalization version are reported. Queries are not saved; inferred graph relations
+    are not presented as author assertions."""
+    try:
+        if LIBRARY is not None:
+            return await LIBRARY.search(query, k, book_id, mode, _bearer(ctx.headers))
+        if book_id not in (None, "book-a"):
+            raise ValueError("Book library is not active")
+        result, _ = await graph_search(query, k, _bearer(ctx.headers), mode)
+        return result
+    except (ValueError, RuntimeError) as error:
+        raise ToolError(str(error)) from error
+
+
+@mcp.tool()
+async def retrieve_decision_context(situation: str, decision: str, ctx: Context, confirmed_facts: list[str] | None = None, unknowns: list[str] | None = None, constraints: list[str] | None = None, mode: str = "mix") -> dict:
+    """Compatibility wrapper for book evidence about a work situation and decision.
+    In the three-book library, returns source passages with frameworks=[]; manual concept maps are out of scope.
+    Pass confirmed facts, unknowns, and constraints separately. These are caller-supplied observations, not facts
+    inferred or verified by the server. All are used in retrieval, held only for this request, and never indexed.
+    Legacy single-book installations may add curated MI framework cards, not verified customer conclusions.
+    mode=mix uses graph navigation and source chunks; naive provides the vector-only comparison."""
+    context = {"situation": situation, "decision": decision, "confirmed_facts": confirmed_facts or [], "unknowns": unknowns or [], "constraints": constraints or []}
+    query = json.dumps(context, ensure_ascii=False)
+    try:
+        if not situation.strip() or not decision.strip():
+            raise ValueError("situation and decision must describe the work and decision")
+        if LIBRARY is not None:
+            result = await LIBRARY.search(query, 5, None, mode, _bearer(ctx.headers))
+            return {"context_status": "caller_supplied_not_verified", "frameworks": [], "concept_map_version": None, "framework_status": "manual_concept_map_is_out_of_scope", **result}
+        result, data = await graph_search(query, 5, _bearer(ctx.headers), mode)
+    except (ValueError, RuntimeError) as error:
+        raise ToolError(str(error)) from error
+    response = {"context_status": "caller_supplied_not_verified", "frameworks": selected_concepts(data), "concept_map_version": CONCEPT_MAP["version"], **result}
+    if isinstance(GRAPH_INDEX, AdvisorIndex) and GRAPH_INDEX.ready.is_set():
+        response = pack_decision_context(response, GRAPH_INDEX.rag.tokenizer)
+    return response
+
+
+def pack_decision_context(response, tokenizer, max_tokens=MAX_CONTEXT_TOKENS):
+    """Budget the final JSON, including framework descriptions added after LightRAG."""
+    packed = {**response, "frameworks": [], "results": []}
+    if len(tokenizer.encode(json.dumps(packed, ensure_ascii=False))) > max_tokens:
+        raise ValueError("Decision-context metadata exceeds the response token budget")
+    for field in ("frameworks", "results"):
+        for item in response[field]:
+            packed[field].append(item)
+            if len(tokenizer.encode(json.dumps(packed, ensure_ascii=False))) > max_tokens:
+                packed[field].pop()
+                break
+    return packed
 
 
 def app():
@@ -528,6 +682,15 @@ def app():
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
 
     async def guarded(scope, receive, send):
+        if scope["type"] == "lifespan":
+            try:
+                await inner(scope, receive, send)
+            finally:
+                if LIBRARY is not None and LIBRARY.thread.is_alive():
+                    await LIBRARY.close()
+                if isinstance(GRAPH_INDEX, AdvisorIndex) and GRAPH_INDEX.thread.is_alive():
+                    await GRAPH_INDEX.close()
+            return
         if scope["type"] == "http":
             headers = {k.decode().lower(): v.decode() for k, v in scope["headers"]}
             if _bearer(headers) is None:
@@ -565,7 +728,10 @@ def main():
     else:
         import uvicorn
 
-        threading.Thread(target=_build_until_done, daemon=True).start()
+        if (DATA_DIR / "library-active.json").exists():
+            _build_until_done()
+        else:
+            threading.Thread(target=_build_until_done, daemon=True).start()
         uvicorn.run(app(), host="0.0.0.0", port=8000)
 
 

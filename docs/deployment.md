@@ -1,5 +1,7 @@
 # Deployment
 
+TL;DR: Use [the three-book release procedure](three-book-library.md) for the versioned library. It stages a verified index, preserves the previous image and data, and requires real MCP acceptance before declaring success. The single-PDF procedure below is retained for legacy installations.
+
 The MCP server runs in one Docker container on a host the team can reach. `scripts/deploy.sh` deploys and operates it from any machine that can ssh into that host and has a clone of this repository; the only other inputs are the book's PDF and an OpenRouter key. Users install only the Claude Code plugin and point it at the server with their own key.
 
 ## Prerequisites
