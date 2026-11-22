@@ -20,16 +20,24 @@ def sha(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def stage(host, deploy_dir, release):
+def stage(host, deploy_dir, release, evaluation, cases):
     root = Path(__file__).resolve().parent.parent
     manifest = json.loads((release / "manifest.json").read_text())
     version = manifest["version"]
     assert re.fullmatch(r"three-books-[a-f0-9]{16}", version)
     ready = json.loads((release / "ready.json").read_text())
     assert ready.get("file_sha256"), "Seal the index before staging"
+    report = json.loads(evaluation.read_text())
+    fixture = json.loads(cases.read_text())
+    assert report["version"] == version and report["fixture_sha256"] == sha(cases)
+    assert report["retrieval_version"] == ready["retrieval_version"]
+    assert len(report["rows"]) == 2 * len(fixture["cases"]) and all(row["passed"] for row in report["rows"])
+    assert {(row["case"], row["mode"]) for row in report["rows"]} == {(case["id"], mode) for case in fixture["cases"] for mode in ("mix", "naive")}
     files = {"code/mcp/" + name: root / "mcp" / name for name in RUNTIME}
     files["code/docker-compose.yml"] = root / "docker-compose.yml"
     files["library-host.sh"] = root / "scripts/library-host.sh"
+    files["evaluation-passed.json"] = evaluation
+    files["cases.json"] = cases
     for name in ("manifest.json", "catalog.json", "ready.json"):
         files["release/" + name] = release / name
     for folder in ("sources", "indices"):
@@ -73,5 +81,7 @@ if __name__ == "__main__":
     parser.add_argument("host")
     parser.add_argument("release", type=Path)
     parser.add_argument("--deploy-dir", default="/volume1/docker/product-advisor")
+    parser.add_argument("--evaluation", required=True, type=Path)
+    parser.add_argument("--cases", type=Path, default=Path(__file__).resolve().parent.parent / "eval/three_book_cases.json")
     args = parser.parse_args()
-    stage(args.host, args.deploy_dir, args.release.resolve())
+    stage(args.host, args.deploy_dir, args.release.resolve(), args.evaluation, args.cases)

@@ -29,20 +29,20 @@ def test_failed_provider_stops_queued_paid_requests(tmp_path):
     assert len(calls) == 1
 
 
-def test_korean_query_translation_is_bounded_literal_and_not_cached():
-    calls = []
-    def transport(endpoint, payload, **kwargs):
-        calls.append((endpoint, payload, kwargs))
-        return {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({"query": "Who controls the customer's budget?"})}}]}
-    provider = Provider(transport)
-    assert asyncio.run(provider.normalize_query("고객 예산을 누가 결정하나?")) == "Who controls the customer's budget?"
-    assert asyncio.run(provider.normalize_query("willingness to pay")) == "willingness to pay"
-    assert len(calls) == 1 and calls[0][0] == "chat/completions"
-    assert calls[0][1]["max_tokens"] == 512 and calls[0][1]["temperature"] == 0
-    assert calls[0][1]["response_format"]["json_schema"]["strict"] is True
-    assert "Do not answer or add concepts" in calls[0][1]["messages"][0]["content"]
-    assert calls[0][2]["attempts"] == 1 and provider.directory is None
-    assert all("고객" not in json.dumps(event, ensure_ascii=False) for event in provider.events)
+def test_korean_query_reaches_retrieval_and_reranking_without_generation():
+    catalog = fixture()
+    chunk = next(iter(catalog.chunks.values()))
+    rag = SimpleNamespace(aquery_data=AsyncMock(return_value={"metadata": {"query_mode": "mix"}, "data": {"chunks": [{"content": rendered_chunk(chunk)}]}}), chunks_vdb=SimpleNamespace(query=AsyncMock(return_value=[])), tokenizer=SimpleNamespace(encode=lambda value: value.split()))
+    index = object.__new__(LibraryIndex)
+    index.catalog, index.engines, index.version = catalog, {MI: rag}, "test"
+    index.provider = SimpleNamespace(rerank=AsyncMock(return_value=[{"index": 0, "relevance_score": .9}]))
+    query = "고객 예산을 누가 결정하나?"
+    result = asyncio.run(index._search(query, 5, MI, "mix", "full"))
+    assert [hit["chunk_id"] for hit in result["results"]] == [chunk["chunk_id"]]
+    assert rag.aquery_data.await_args.args[0] == query
+    assert index.provider.rerank.await_args.kwargs["query"] == query
+    assert result["retrieval"]["query_normalization"] == "none_original_query"
+    assert result["retrieval"]["query_normalization_model"] is None
 
 
 def test_serving_busy_response_retries_once_and_records_both_attempts(monkeypatch):

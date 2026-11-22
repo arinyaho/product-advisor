@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import threading
 import time
 import urllib.error
@@ -24,12 +23,12 @@ ENGINE_VERSION = "1.5.7"
 INDEX_SCHEMA = "three-books-native-extraction-v1"
 EMBED_MODEL = "qwen/qwen3-embedding-4b"
 EXTRACT_MODEL = "anthropic/claude-haiku-5.5"
-RERANK_MODEL = "cohere/rerank-v3.5"
+RERANK_MODEL = "qwen/qwen3-reranker-8b"
 DIMENSION = 2560
 EVIDENCE_TOKENS = 4000
 EXTRACT_SETTINGS = {"entity_extract_max_gleaning": 0, "entity_extract_max_records": 12, "entity_extract_max_entities": 6, "addon_params": {"language": "English", "entity_types": ["CONCEPT", "PROCESS", "ROLE", "METRIC", "ORGANIZATION"]}}
 FIXED_CONFIG = {"schema": INDEX_SCHEMA, "lightrag": ENGINE_VERSION, "embedding": EMBED_MODEL, "dimension": DIMENSION, "extraction": EXTRACT_MODEL, "rerank": RERANK_MODEL, "extraction_settings": EXTRACT_SETTINGS, "extraction_max_tokens": 1800, "temperature": 0}
-RETRIEVAL_CONFIG = {"normalization": "literal-ko-en-v2", "normalization_model": EXTRACT_MODEL, "normalization_max_tokens": 512, "normalization_response_format": "strict_json_schema", "temperature": 0, "rerank": RERANK_MODEL, "min_rerank_score": .15, "context_tokens": 24000, "mix_vector_candidate_pool": 40, "evidence_tokens": EVIDENCE_TOKENS}
+RETRIEVAL_CONFIG = {"normalization": "none_original_query", "rerank": RERANK_MODEL, "min_rerank_score": .15, "context_tokens": 24000, "mix_vector_candidate_pool": 40, "evidence_tokens": EVIDENCE_TOKENS}
 RETRIEVAL_VERSION = digest(json.dumps(RETRIEVAL_CONFIG, sort_keys=True).encode())[:16]
 
 
@@ -70,7 +69,7 @@ class Provider:
             usage = response.get("usage", {})
             input_tokens = usage.get("prompt_tokens", usage.get("total_tokens", 0))
             output_tokens = usage.get("completion_tokens", 0)
-            estimate = (.1 * input_tokens + .5 * output_tokens) / 1_000_000 if endpoint == "chat/completions" else .02 * input_tokens / 1_000_000 if endpoint == "embeddings" else .002
+            estimate = (.1 * input_tokens + .5 * output_tokens) / 1_000_000 if endpoint == "chat/completions" else .02 * input_tokens / 1_000_000 if endpoint == "embeddings" else .20 * input_tokens / 1_000_000 if payload["model"] == "qwen/qwen3-reranker-8b" else .002
             cost = usage.get("cost")
             cost = float(cost) if cost is not None else estimate
             event.update({"status": "completed", "usage": usage, "charged_or_estimated_usd": cost, "cost_source": "provider" if usage.get("cost") is not None else "published_rate_estimate"})
@@ -162,26 +161,6 @@ class Provider:
             raise RuntimeError("Invalid rerank scores")
         return sorted(result, key=lambda row: row["relevance_score"], reverse=True)
 
-    async def normalize_query(self, query):
-        if not re.search("[가-힣]", query):
-            return query
-        payload = {"model": EXTRACT_MODEL, "messages": [{"role": "system", "content": "Translate the retrieval query into English literally. Preserve all conditions, uncertainty, names, and questions. Do not answer or add concepts. Return only JSON with one field: query."}, {"role": "user", "content": query}], "max_tokens": 512, "temperature": 0, "reasoning": {"enabled": False}}
-        payload["response_format"] = {"type": "json_schema", "json_schema": {"name": "retrieval_query", "strict": True, "schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"], "additionalProperties": False}}}
-        response = await asyncio.to_thread(self.request, "chat/completions", payload)
-        choice = response["choices"][0]
-        if choice.get("finish_reason") != "stop":
-            raise RuntimeError("Query translation was truncated; retrieval stopped")
-        try:
-            translated = json.loads(choice["message"]["content"])
-        except (ValueError, TypeError):
-            if self.directory:
-                atomic_json(self.directory / "failed-normalization" / (digest(json.dumps(payload, sort_keys=True).encode()) + ".json"), response)
-            raise RuntimeError("Query translation did not satisfy the required JSON format") from None
-        if not isinstance(translated, dict) or set(translated) != {"query"} or not isinstance(translated["query"], str) or not 3 <= len(translated["query"].strip()) <= 8000:
-            raise RuntimeError("Invalid query translation; retrieval stopped")
-        return translated["query"]
-
-
 class StaticVectors:
     def __init__(self, directory, provider):
         self.directory = Path(directory)
@@ -264,6 +243,7 @@ async def preserve_source_text(rag, chunks):
 
 def _canonical(name):
     return " ".join("".join(character.lower() if character.isalnum() else " " for character in name).split())
+
 
 
 def compile_graph(catalog, directory, book_ids):
@@ -412,26 +392,21 @@ class LibraryIndex:
         self.loop.call_soon_threadsafe(self.loop.stop)
         await asyncio.to_thread(self.thread.join, 5)
 
-    async def search(self, query, k, book_id, mode, scope, *, normalized_query=None):
+    async def search(self, query, k, book_id, mode, scope):
         if mode not in ("mix", "naive") or not 1 <= k <= 20 or not 3 <= len(query.strip()) <= 8000:
             raise ValueError("Use mode mix/naive, k 1..20, and a query of 3..8000 characters")
         if book_id is not None and book_id not in self.catalog.books:
             raise ValueError("Unknown book_id")
         if not self.ready.is_set():
             return {"retrieval": {"requested_mode": mode, "actual_mode": None, "status": self.error or "building", "fallback": False}, "results": []}
-        future = asyncio.run_coroutine_threadsafe(self._search(query, k, book_id, mode, scope, normalized_query), self.loop)
+        future = asyncio.run_coroutine_threadsafe(self._search(query, k, book_id, mode, scope), self.loop)
         return await asyncio.wrap_future(future)
 
-    async def _search(self, query, k, book_id, mode, scope, normalized_query=None):
+    async def _search(self, query, k, book_id, mode, scope):
         started = time.monotonic()
         rag = self.engines[book_id or "all"]
         param = QueryParam(mode=mode, top_k=40, chunk_top_k=40, max_total_tokens=RETRIEVAL_CONFIG["context_tokens"], max_entity_tokens=2500, max_relation_tokens=2000, ll_keywords=[query] if mode == "mix" else [], hl_keywords=[query] if mode == "mix" else [], enable_rerank=False)
         try:
-            normalized = bool(re.search("[가-힣]", query))
-            if normalized:
-                query = normalized_query if normalized_query is not None else await self.provider.normalize_query(query)
-                param.ll_keywords = [query] if mode == "mix" else []
-                param.hl_keywords = [query] if mode == "mix" else []
             raw = await rag.aquery_data(query, param=param)
             actual_mode = raw.get("metadata", {}).get("query_mode") or raw.get("metadata", {}).get("mode")
             if actual_mode != mode:
@@ -461,7 +436,7 @@ class LibraryIndex:
                 if failures:
                     raise RuntimeError("Rerank provider unavailable")
                 mapped = [{**self.catalog.chunks[hit["chunk_id"]], "rerank_score": hit["rerank_score"]} for hit in ranked]
-            result = {"semantic": True, "retrieval": {"requested_mode": mode, "actual_mode": actual_mode, "status": "ready", "fallback": False, "index_version": self.version, "retrieval_version": RETRIEVAL_VERSION, "query_normalization": "literal_ko_to_en" if normalized else "not_needed", "query_normalization_model": EXTRACT_MODEL if normalized else None, "lightrag_version": ENGINE_VERSION, "rerank_model": RERANK_MODEL, "evidence_token_budget": EVIDENCE_TOKENS, "graph_entities": len(raw.get("data", {}).get("entities", [])), "graph_relations": len(raw.get("data", {}).get("relationships", [])), "candidate_chunks": len(candidates), "graph_provenance": "model_extracted_navigation_not_author_assertions", "scope": book_id or "all"}, "results": []}
+            result = {"semantic": True, "retrieval": {"requested_mode": mode, "actual_mode": actual_mode, "status": "ready", "fallback": False, "index_version": self.version, "retrieval_version": RETRIEVAL_VERSION, "query_normalization": "none_original_query", "query_normalization_model": None, "lightrag_version": ENGINE_VERSION, "rerank_model": RERANK_MODEL, "evidence_token_budget": EVIDENCE_TOKENS, "graph_entities": len(raw.get("data", {}).get("entities", [])), "graph_relations": len(raw.get("data", {}).get("relationships", [])), "candidate_chunks": len(candidates), "graph_provenance": "model_extracted_navigation_not_author_assertions", "scope": book_id or "all"}, "results": []}
             for chunk in mapped[:k]:
                 book = self.catalog.books[chunk["book_id"]]
                 record = {**chunk, "title": book["title"], "edition": book["edition"], "authors": book["authors"], "source_sha256": book["sha256"], "read_section": {"id": chunk["section_id"], "book_id": chunk["book_id"]}}

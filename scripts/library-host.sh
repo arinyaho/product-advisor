@@ -31,9 +31,13 @@ fi
 [ "$ACTION" = activate ] || exit 2
 test -s "$STAGE/verified.json"
 python3 - "$STAGE/evaluation-passed.json" "$VERSION" "$STAGE" "$PWD" <<'PY'
-import json,sys,pathlib
+import hashlib,json,sys,pathlib
 evaluation=json.load(open(sys.argv[1]))
 assert evaluation['version']==sys.argv[2]
+fixture=pathlib.Path(sys.argv[3])/'cases.json'
+assert hashlib.sha256(fixture.read_bytes()).hexdigest()==evaluation['fixture_sha256'], 'Evaluation fixture mismatch'
+cases=json.loads(fixture.read_text())['cases']
+assert {(row['case'],row['mode']) for row in evaluation['rows']}=={(case['id'],mode) for case in cases for mode in ('mix','naive')}
 assert all(evaluation['summary'][mode]['passed']==evaluation['summary'][mode]['total']==15 for mode in ('mix','naive'))
 ready=pathlib.Path(sys.argv[3])/'release'/'ready.json'
 if not ready.exists():ready=pathlib.Path(sys.argv[4])/'data'/'libraries'/sys.argv[2]/'ready.json'
@@ -75,6 +79,14 @@ echo "WAITING_FOR_REAL_MCP_ACCEPTANCE: $VERSION"
 for ((i=0;i<150;i++)); do
     test ! -e "$STAGE/rejected.json" || { echo 'MCP acceptance failed'; exit 1; }
     if [ -e "$STAGE/accepted.json" ]; then
+        python3 - "$STAGE" <<'PY'
+import json,pathlib,sys
+stage=pathlib.Path(sys.argv[1])
+accepted=json.loads((stage/'accepted.json').read_text())
+evaluation=json.loads((stage/'evaluation-passed.json').read_text())
+assert accepted['status']=='accepted' and accepted['version']==evaluation['version']
+assert accepted['fixture_sha256']==evaluation['fixture_sha256']
+PY
         success=true
         echo "DEPLOYMENT_ACCEPTED: $VERSION"
         exit

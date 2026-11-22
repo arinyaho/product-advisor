@@ -623,8 +623,8 @@ async def search_book(query: str, ctx: Context, k: int = 5, mode: str = "mix", b
     Full keys get the matched chunk; excerpt keys get at most 60 words per hit. Follow get_section to read more.
     mode=mix uses model-extracted graph navigation plus book chunks; naive is vector-only diagnosis.
     PDF page numbers and EPUB document/anchor/block positions are distinct. Retrieval failures and actual modes
-    are explicit. Korean questions are translated literally to English for retrieval/reranking, without generating
-    an answer; the model and normalization version are reported. Queries are not saved; inferred graph relations
+    are explicit. Korean and English questions reach multilingual retrieval/reranking unchanged, without query
+    translation or answer generation. Queries are not saved; inferred graph relations
     are not presented as author assertions."""
     try:
         if LIBRARY is not None:

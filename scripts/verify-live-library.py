@@ -16,11 +16,13 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))
-from book_library import Catalog, atomic_json, words
+from book_library import Catalog, atomic_json, words, digest
 
 
-async def verify(release, output, host=None):
+async def verify(release, output, host=None, fixture_path=None):
     root = Path(__file__).resolve().parent.parent
+    fixture_path = fixture_path or root / "eval/three_book_cases.json"
+    fixture_sha256 = digest(fixture_path.read_bytes())
     catalog = Catalog.load(release)
     version = json.loads((release / "manifest.json").read_text())["version"]
     retrieval_version = json.loads((release / "ready.json").read_text())["retrieval_version"]
@@ -30,7 +32,7 @@ async def verify(release, output, host=None):
     if config.get("bearer_token_env_var"):
         headers["Authorization"] = "Bearer " + os.environ[config["bearer_token_env_var"]]
     assert any(name.lower() == "authorization" for name in headers), "The configured client has no credential; no substitute key is used"
-    report = {"version": version, "endpoint": config["url"], "credential_source": "existing Codex MCP configuration", "checks": []}
+    report = {"version": version, "fixture_sha256": fixture_sha256, "endpoint": config["url"], "credential_source": "existing Codex MCP configuration", "checks": []}
     async with httpx2.AsyncClient(headers=headers, timeout=120) as http:
         async with streamable_http_client(config["url"], http_client=http) as streams:
             async with ClientSession(*streams) as session:
@@ -77,7 +79,7 @@ async def verify(release, output, host=None):
                 legacy = await call("get_section", {"id": 27})
                 assert isinstance(legacy, str) and "The Information You Need from Those Early Pricing Talks" in legacy
                 report["checks"].append({"tool": "legacy get_section", "id": 27, "passed": True})
-                cases = {case["id"]: case for case in json.loads((root / "eval/three_book_cases.json").read_text())["cases"]}
+                cases = {case["id"]: case for case in json.loads(fixture_path.read_text())["cases"]}
                 for name, mode in [("mi-wtp-en", "mix"), ("fs-icp-en", "mix"), ("de-beachhead-en", "mix"), ("all-pilot-ko", "mix"), ("all-segment-ko", "mix"), ("all-segment-ko", "naive"), ("unsupported-venus", "mix")]:
                     case = cases[name]
                     arguments = {"query": case["query"], "k": 5, "mode": mode}
@@ -85,6 +87,9 @@ async def verify(release, output, host=None):
                         arguments["book_id"] = case["book_id"]
                     result = await call("search_book", arguments)
                     retrieval = result["retrieval"]
+                    check = {"tool": "search_book", "case": name, "mode": mode, "source_ids": [hit["chunk_id"] for hit in result["results"]], "retrieval": retrieval, "passed": False}
+                    report["checks"].append(check)
+                    atomic_json(output, report)
                     assert retrieval["status"] == "ready" and retrieval["actual_mode"] == mode
                     assert retrieval["requested_mode"] == mode and not retrieval["fallback"] and retrieval["index_version"] == version
                     assert retrieval["retrieval_version"] == retrieval_version
@@ -95,13 +100,14 @@ async def verify(release, output, host=None):
                         assert not case.get("book_id") or hit["book_id"] == case["book_id"]
                         identities.append(hit["chunk_id"])
                     assert bool(set(identities) & set(case["expected_chunk_ids"])) if case["expected_chunk_ids"] else not identities
-                    report["checks"].append({"tool": "search_book", "case": name, "mode": mode, "source_ids": identities, "retrieval": retrieval, "passed": True})
+                    check["passed"] = True
                     atomic_json(output, report)
     report["passed"] = True
     atomic_json(output, report)
     if host:
         target = "/volume1/docker/product-advisor/staging/" + version + "/accepted.json"
-        subprocess.run(["ssh", host, "umask 077; cat > " + shlex.quote(target)], input=json.dumps({"version": version, "status": "accepted", "checks": len(report["checks"])}), text=True, check=True)
+        command = "umask 077; cat > " + shlex.quote(target + ".tmp") + " && mv " + shlex.quote(target + ".tmp") + " " + shlex.quote(target)
+        subprocess.run(["ssh", host, command], input=json.dumps({"version": version, "fixture_sha256": fixture_sha256, "status": "accepted", "checks": len(report["checks"])}), text=True, check=True)
     print(json.dumps({"version": version, "endpoint": config["url"], "passed": True, "checks": len(report["checks"])}))
 
 
@@ -110,5 +116,6 @@ if __name__ == "__main__":
     parser.add_argument("release", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--accept-host")
+    parser.add_argument("--cases", type=Path)
     args = parser.parse_args()
-    asyncio.run(verify(args.release, args.output, args.accept_host))
+    asyncio.run(verify(args.release, args.output, args.accept_host, args.cases))
