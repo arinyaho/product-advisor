@@ -1,6 +1,6 @@
 # Three-book validation and rollout
 
-TL;DR: Candidate `three-books-12acf0596c563f6f` passes all 15 source-identity cases in both mix and naive using the explicitly versioned v2 source annotations. It is not deployed or live-accepted yet. The first candidate failed live MCP acceptance and was rolled back; those failures and the original v1 fixture remain unchanged. These are development regression results, not held-out retrieval quality or GraphRAG superiority evidence.
+TL;DR: Candidate `three-books-12acf0596c563f6f` passes all 15 source-identity cases in both mix and naive using the explicitly versioned v2 source annotations. It is staged on the NAS with 43 verified files; privileged activation and live acceptance are pending. The first candidate failed live MCP acceptance and was rolled back; those failures and the original v1 fixture remain unchanged. These are development regression results, not held-out retrieval quality or GraphRAG superiority evidence.
 
 ## Sources and indexed scope
 
@@ -75,7 +75,7 @@ TL;DR: Candidate `three-books-12acf0596c563f6f` passes all 15 source-identity ca
 - Existing endpoint: https://prd.damcocu.synology.me/mcp. Verification uses the existing Codex URL and credential through an actual MCP ClientSession, with no substitute key.
 - First candidate three-books-b7c503380791bafe built image sha256:d52931b97bcc41a9121eab734a734346b1e5dbbdb4e9d04fa12394c471ff4ea1. Live book listing, each book's TOC/read/continuation, legacy MI 27, and three filtered searches passed; all-pilot-ko/mix then failed its expected-source check. No acceptance file was issued. The failed response IDs were not retained before the assertion, so the precise original cause is unverified. The verifier now records attempts before assertions.
 - Automatic rollback restored /volume1/docker/product-advisor/backups/three-books-b7c503380791bafe-20261122T211201Z. The old MCP tools and legacy section 27 were independently checked afterward; data/rollback-confirmation.json retains that evidence.
-- Revised candidate three-books-12acf0596c563f6f is not active. A passing local evaluation does not establish deployment or actual MCP acceptance.
+- Revised candidate three-books-12acf0596c563f6f is staged at /volume1/docker/product-advisor/staging/three-books-12acf0596c563f6f. All 43 staged files were hash-verified by the NAS. Runtime code commit: 6d1c57a. It is not active. A passing local evaluation does not establish deployment or actual MCP acceptance.
 - Staging includes an explicit runtime whitelist, sealed index, source files, exact fixture, passing evaluation and integrity inventory. It excludes keys, .env and build caches. The host verifies evaluation/fixture hashes and all 30 case/mode identities before mutation; the live acceptance marker must match the same fixture hash and release.
 - Activation uses the existing /volume1/docker/product-advisor path and Docker Compose service. It preserves the exact old image, runtime files and active pointer. Missing acceptance, rejection, build failure or startup failure automatically restores that snapshot.
 - NAS Docker activation requires sudo authentication in the user's terminal. No password is accepted in chat. Previous SSH authentication does not provide the required sudo credential.
