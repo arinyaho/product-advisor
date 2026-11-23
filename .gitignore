@@ -1,6 +1,9 @@
 *.pdf
+*.epub
 __pycache__/
 *.npy
 *.npz
 .env
 data/
+.venv/
+library-sources.json

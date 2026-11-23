@@ -5,13 +5,17 @@ description: Use whenever the conversation is about whether a product or solutio
 
 # Product advisor
 
-The team often receives products and solutions to build without a business case and has to find the value, the paying customer, and the price on its own. Use the method of *Reference A* (Author A1 & Author A2) to help: design the product around what customers will pay, and decide that before engineering effort is spent.
+TL;DR: Help a team at the first-paying-customer stage choose customers, verify problems and value, sell, understand buying decisions, and define an offer and price. Use *Reference A*, *Reference B*, and *Reference C Expanded & Updated* as distinct sources, preserving each author's conditions and definitions.
 
 Give advice the team can act on and defend. Every recommendation names the evidence behind it: a book page from the MCP server, or a team record with its link. Say which parts are assumptions still to be checked with customers.
 
-## Concept map
+## Source retrieval
 
-Pick the rows that match the situation, then call `search_book` with the situation or the listed terms and read the results before advising. Use `get_section` (ids from `list_sections`) when a whole chapter is needed; if the key has excerpt scope the call is refused, so work from `search_book` passages and cite their pages. Query again with the book's English terms from the table when results are off-topic or `search_book` reports `"semantic": false`.
+Call `list_books` to check the registered editions and index status. Use `search_book` for a Korean situation question or an English concept. Omitting `book_id` searches all books; set it to `book-a`, `book-b`, or `book-c` for a strict book filter. Never force a source from every book into the answer. Customer facts come from the conversation or accessible team sources; keep corrections and unknowns explicit. Purchase rejection does not establish a price objection, usage does not establish WTP, and a technical capability does not establish customer priority.
+
+`mix` combines extracted graph navigation and source vectors; `naive` searches source vectors. Check requested/actual mode, status, and fallback before relying on a result. In library mode failures return `actual_mode=null`, not a silently substituted retriever. Follow each result's `read_section` arguments to read its source. `list_sections` is paginated with `next_offset`; each item names its book. `get_section` returns bounded text and continuation arguments. Full keys can read up to 2,000 words and ten PDF pages; excerpt keys receive up to 60 words per library read. Legacy integer section calls still address Reference A with its existing access behavior. Cite PDF pages as PDF pages, and EPUB document/anchor/block positions as EPUB positions; do not invent print page numbers. Graph relations are model-extracted navigation, not explicit author claims. If no supporting source is returned, say the evidence is missing.
+
+The following retained lookup table covers Reference A only. For founder sales use concepts such as ideal customer profile, authority, discovery, objection handling, and closing. For Reference C use beachhead market, end-user persona, quantified value proposition, decision-making unit, and acquisition process. Manual concept-map expansion is not part of this release.
 
 | Situation | Framework | Chapter | Search terms |
 |---|---|---|---|

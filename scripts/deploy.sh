@@ -52,7 +52,7 @@ echo 'waiting for the embedding index and section summaries (about three minutes
 i=0
 while [ \$i -lt 120 ]; do
     logs=\$($(compose logs) 2>&1)
-    case \"\$logs\" in *'section summaries ready'*) exit 0 ;; esac
+    if printf '%s\\n' \"\$logs\" | grep -q 'section summaries ready' && printf '%s\\n' \"\$logs\" | grep -q 'LightRAG index ready'; then exit 0; fi
     if $(compose ps -a) | grep -qE 'Restarting|Exited'; then
         echo 'the container stopped or is restarting; last log lines:' >&2
         printf '%s\n' \"\$logs\" | tail -20 >&2

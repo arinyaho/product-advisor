@@ -1,0 +1,46 @@
+{
+  "sources": [
+    {
+      "parser": "legacy_pdf",
+      "book_id": "private-reference-1",
+      "source_filename": "reference-1.pdf",
+      "sha256": "<privately verified source sha256>",
+      "title": "<privately verified title>",
+      "authors": [
+        "<privately verified author>"
+      ],
+      "edition": "<verified edition or explicitly unverified>",
+      "metadata_evidence": {
+        "verification": "<record the source pages or EPUB metadata used>"
+      }
+    },
+    {
+      "parser": "outlined_pdf",
+      "book_id": "private-reference-2",
+      "source_filename": "reference-2.pdf",
+      "sha256": "<privately verified source sha256>",
+      "title": "<privately verified title>",
+      "authors": [
+        "<privately verified author>"
+      ],
+      "edition": "<verified edition or explicitly unverified>",
+      "metadata_evidence": {
+        "verification": "<record the source pages or EPUB metadata used>"
+      }
+    },
+    {
+      "parser": "epub",
+      "book_id": "private-reference-3",
+      "source_filename": "reference-3.epub",
+      "sha256": "<privately verified source sha256>",
+      "title": "<privately verified title>",
+      "authors": [
+        "<privately verified author>"
+      ],
+      "edition": "<verified edition or explicitly unverified>",
+      "metadata_evidence": {
+        "verification": "<record the source pages or EPUB metadata used>"
+      }
+    }
+  ]
+}
