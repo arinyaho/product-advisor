@@ -4,36 +4,17 @@ TL;DR: Candidate `three-books-12acf0596c563f6f` passes all 15 source-identity ca
 
 ## Sources and indexed scope
 
-| Book ID | Original filename | Verified edition | Sections | Chunks | SHA-256 |
-|---|---|---|---:|---:|---|
-| `book-a` | `"source-1.pdf"` | Authorized India Edition; copyright 2016; publication year not verified | 146 | 532 | `c12d805c9f6e2bc2a1493ee7f99b0e0dd6321b3a957d7e43332503eb28b12a88` |
-| `book-b` | `"source-2.pdf"` | Unnumbered PDF text edition; publication year and edition not verified | 100 | 1216 | `a31eda82a68867a489097ce907141cef7adccb0d06d7bcb631c2f602ff33dcc9` |
-| `book-c` | `"source-3.epub"` | Expanded & Updated; 10th-anniversary edition; 2024 | 278 | 1047 | `98b82e301b7fb7a67fc23d0258464872c2f13de2f7b4da6e1191f20a5790cf67` |
+Source identities, original filenames, author/edition evidence and original hashes are private. They are preserved in the source registration and authenticated catalog rather than published here.
 
-- Original files were rehashed after implementation and still match their recorded hashes. No original was moved or edited. PDFs and EPUBs are ignored by Git and excluded from the Docker build context.
-- Reference A has 259 PDF pages; its existing section IDs and 200-word chunk boundaries are preserved. Twelve footer-only chunks are excluded, leaving 532 searchable chunks.
-- Reference B has 400 PDF pages. All 100 contents headings were located on their actual PDF pages. A page-by-page word comparison found no loss from text normalization. The uploaded PDF contains no verified publication year or author credit; the author/title pair is corroborated by the official [book site](https://www.private-reference.example/). Its filename does not establish the edition.
-- Reference C has 42 EPUB spine items. OPF/title/copyright/preface evidence identifies Author C and the 2024 expanded 10th-anniversary edition. Image references and supplied alt text are preserved; image-only text is not OCRed.
-- PDF page numbers and print page numbers are separate. Unverified print pages remain null. EPUB citations use document/anchor/block/word coordinates.
+| Public alias | Format | Sections | Indexed chunks |
+|---|---|---:|---:|
+| `book-a` | PDF | 146 | 532 |
+| `book-b` | PDF | 100 | 1216 |
+| `book-c` | EPUB | 278 | 1047 |
 
-## Fixed implementation
-
-- Index: `three-books-b7c503380791bafe`; parser `three-books-1`; schema `three-books-native-extraction-v1`; retrieval profile `5b4bbffee60521f4`.
-- LightRAG 1.5.7 was reused without upgrading. MCP 2.3.0, PyMuPDF 2.1, NumPy 2.5.5, and Uvicorn 0.54.0 are pinned.
-- Embedding: qwen/qwen3-embedding-4b, 2,560 dimensions. Existing compatible MI vectors and all completed extraction/vector caches were reused.
-- Extraction: anthropic/claude-haiku-5.5; maximum 1,800 output tokens; no gleaning; maximum 12 records and six entities; English extraction; reasoning disabled; temperature 0 requested. Cached responses preserve actual extraction outputs.
-- Query translation: the same Haiku model; literal Korean-to-English only, 512 output tokens, strict JSON schema. English queries skip translation. No answer-generation step was added. Production query text and translations are not persisted.
-- Reranking: cohere/rerank-v3.5 through OpenRouter; minimum score 0.15. The threshold and expected-source labels were not lowered or changed to pass evaluation.
-- Both modes use 40-candidate ceilings and the same 4,000-token final evidence budget. Candidate packing uses 24,000 tokens. Mix preserves the same scoped native vector pool before a single reranking pass; this is disclosed in response metadata and adds one query embedding call.
-- Physical book-specific graph/vector views enforce book filters before retrieval. The all-book graph has 7,494 nodes and 10,200 edges, including 236 shared-label navigation nodes. Author definitions remain book-scoped; extracted and derived links are not represented as author assertions.
-
-## MCP changes
-
-- Added list_books(). search_book(query, k=5, mode="mix", book_id=None) searches all books when book_id is absent; naive remains diagnostic. Results identify book, title, edition, chapter/section, source location, source hash, chunk ID, score, and read_section arguments.
-- list_sections(book_id=None, offset=0, limit=100) returns a bounded object with sections, total, and next_offset. Every item identifies its book.
-- get_section(id, start_page=None, book_id=None) accepts legacy MI integer IDs and namespaced new-book IDs. New-style reads return bounded source text and continuation arguments; EPUB continuation is a chunk/word cursor.
-- Legacy integer MI calls keep the same section identities and existing full-text/summary access behavior. Library reads cap full keys at 2,000 words and ten PDF pages, and excerpt keys at 60 words. No key was issued, replaced, or copied into deployment artifacts.
-- retrieve_decision_context remains callable for compatibility, but library mode returns no manual framework cards. Manual concept maps, company ingestion, customer memory, and CRM were not implemented.
+- Original files were not moved or edited. PDFs, EPUBs and private source registration are excluded from Git and the image.
+- Numeric primary-source section IDs and original chunk boundaries remain unchanged. PDF pages and EPUB positions are distinct; unverified printed pages stay null.
+- Image references and supplied alt text are retained; image-only EPUB content is not OCRed.
 
 ## Engine, models, and index
 
@@ -48,7 +29,7 @@ TL;DR: Candidate `three-books-12acf0596c563f6f` passes all 15 source-identity ca
 ## Verification and annotation correction
 
 - Local suite: 69 passed, six subtests passed, five legacy external-provider tests deselected. Excluded checks are not reported as passed. The paid three-book evaluation is separate.
-- Original fixture: eval/three_book_cases.json; SHA-256 2ee407af9803cd52948dacaa0cfff806bd985add81e5136ea8d41226187001dd. The original Qwen evaluation remains 14/15 in each mode at data/three-book-evaluation-qwen.json.
+- Original fixture: eval/three_book_cases.json; SHA-256 44781921b166393aa3012f1812127de4cd81a4c644c3e72197c726c07cd0c121. The original Qwen evaluation remains 14/15 in each mode at data/three-book-evaluation-qwen.json.
 - V2 fixture: eval/three_book_cases_v2.json; SHA-256 f484d8e31fe3152518ab4a6f79ef1c862a9f5d44d2edc392fdd48fcae5a6c4f7. The user authorized continuing with a source-reviewed correction on 2026-11-23. It adds exactly five reviewed sources to all-pilot-ko; all questions, original sources, filters, negative cases, k=5, score floor 0.15, and 4,000-token final budget remain unchanged. See source-annotation-audit.md for exact positions and reasons.
 - V2 was corrected after inspecting v1 retrieval. Passing it does not demonstrate an independent general-quality improvement. The criterion is at least one verified expected source for positive questions and no hits for unsupported questions; it does not prove every extra hit is relevant or every component of a compound question is covered.
 - Source identity, exact text, original location, strict book filters, actual modes, bounded response size, all-book retrieval, TOC/read/continuation and legacy MI section 27 are checked. Expected identities were not replaced or removed.
@@ -94,7 +75,9 @@ ssh -t damcocu 'cd /volume1/docker/product-advisor && bash staging/three-books-1
 ## Deferred and unverified
 
 - Manual concept maps, company ingestion, customer-specific memory and CRM are outside this scope.
-- Reference B publication year/numbered edition remain unverified. Unmapped printed page numbers remain null. EPUB image-only text is not OCRed.
+- Unverified publication year/edition fields remain explicitly marked in the private catalog. Unmapped printed page numbers remain null. EPUB image-only text is not OCRed.
 - Held-out retrieval precision, comprehensive answer coverage, and a GraphRAG advantage remain unverified. This service returns sources, not generated business answers.
 - Deployment and actual configured MCP acceptance passed. The built image SHA is recorded from the host build log and installed runtime hashes were verified; no separate privileged post-acceptance docker-inspect call was performed.
 - Provider charges for live MCP queries are not included in the local evaluation comparison; no live per-query billing receipt is persisted by the runtime. Earlier diagnostic/evaluation costs also remain separate rather than being mislabeled as the total bill.
+
+Privacy note: Public bibliographic labels and aliases were anonymized without changing evaluation questions, expected source chunk identities or private historical receipts. Original fixture bytes remain only in the private recovery snapshot; public fixture hashes therefore differ from pre-anonymization receipts. New evaluations must use fresh output files.

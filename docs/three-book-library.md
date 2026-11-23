@@ -6,14 +6,13 @@ Current rollout status: three-books-12acf0596c563f6f is deployed and accepted th
 
 ## Registered sources
 
-| book_id | Verified source | Edition evidence | Search scope |
-|---|---|---|---|
-| `book-a` | Author A1 and Author A2, *Reference A*; PDF | Copyright PDF page 8: Authorized India Edition, copyright 2016; publication year unverified. The filename's 2022 is not edition evidence. | 259 PDF pages, 146 sections, 532 original searchable chunks; 12 footer-only chunks excluded. |
-| `book-b` | *Reference B: Private reference material*; PDF | Title from PDF page 1; Author B attribution supplied by the user. This file contains no verified author credit, publication year, or numbered edition. | 400 PDF pages; 100 printed-TOC sections, 1,216 paragraph chunks. Front title and contents remain in the source file. |
-| `book-c` | Author C, *Reference C Expanded & Updated: Private reference material*; EPUB | OPF metadata, ISBN private-isbn, publication date 2024-04-02; copyright 2024; navigation/preface identify the expanded 10th-anniversary edition. | 42 spine items, 278 retained sections, 1,047 chunks. Image references and supplied alt text are retained; image-only contents are not OCRed. |
+| Public alias | Source adapter | Indexed scope |
+|---|---|---|
+| `book-a` | Primary PDF with legacy section/chunk compatibility | Source metadata is private; numeric section IDs remain stable. |
+| `book-b` | PDF with an outline extracted from its contents | Source metadata and actual namespaced IDs come from the private registration. |
+| `book-c` | EPUB with document/anchor/block locations | Source metadata and actual namespaced IDs come from the private registration. |
 
 - Each private manifest records original filename, SHA-256, metadata evidence, parser version, fixed index configuration, and book counts. Original files are never edited.
-- The author/title pair for Reference B is also corroborated by [the author's official book site](https://www.private-reference.example/). This does not identify the uploaded PDF's edition or publication year.
 - PDF locations identify the PDF page and normalized text range. `printed_page=null` means the printed page has not been mapped. EPUB locations identify document, anchor, block range, and word range; they never invent PDF pages.
 - The Reference A chunking and numeric section identities are retained. New PDF/EPUB chunks respect section boundaries, paragraphs, tables, and quoted blocks. Book hashes and parser versions participate in chunk identities.
 - Source catalogs and indices are private runtime data. `.gitignore` excludes PDFs, EPUBs, vectors, environment files, and `data/`; the Docker context uses a whitelist.
@@ -48,13 +47,19 @@ Current rollout status: three-books-12acf0596c563f6f is deployed and accepted th
 - The first frozen comparison passed 14/15 in each mode. A compound Korean pilot/purchase question had valid expected candidates, but the v3.5 reranker scored its key DMU passage at 0.149, below 0.15. Sentence splitting and adding chapter metadata did not repair it. Rerank 4 Pro was rejected by the account's ZDR policy; the policy was not loosened. Literal translation followed by English retrieval/reranking found the fixed expected sources without lowering the score floor or changing source labels. Preserve both the original and normalized evaluation results; the latter is a development regression rather than an unseen general-quality guarantee.
 - Native custom-KG insertion removes non-printing controls. Two legacy source chunks contain three such characters. The build restores their exact original bodies in the source-text store after insertion, retaining native vector IDs and original source locations. Sealing still requires exact source-body equality.
 
+## Private source registration
+
+Start from [the synthetic registration example](../examples/library-sources.example.json). Store `library-sources.json` outside Git (the default is `DATA_DIR/library-sources.json`). Its `sources` array contains three entries with `parser` (`legacy_pdf`, `outlined_pdf`, `epub`), `book_id`, `source_filename`, `sha256`, `title`, `authors`, `edition` and `metadata_evidence`. Each parser verifies the source hash; PDF/EPUB metadata checks and original-position verification still apply. Do not publish this file. Existing deployments can preserve a private `legacy_summary_prompt` value to reuse their original summary cache; the repository default is generic.
+
+Actual registered IDs remain valid for existing clients and native storage. Public aliases `book-a`, `book-b`, `book-c` resolve to the first, second and third registered sources. Read actual metadata and IDs with authenticated `list_books`; never copy that response into public documentation. Build recipes contain no bibliography or source filenames.
+
 ## Build and verify
 
 Run from an isolated worktree with the existing source PDF at `DATA_DIR/book.pdf` and credentials provided through the environment's secret mechanism. Never place secret values in command arguments.
 
 ```sh
 export DATA_DIR="$PWD/data" PYTHONPATH=mcp
-python mcp/library_cli.py prepare --source-root /Volumes/storage1/Projects/product-advisor
+python mcp/library_cli.py prepare --source-root /path/to/private/sources --registry /path/to/private/library-sources.json
 python mcp/library_cli.py build --directory data/libraries/<version>
 python mcp/seal_library.py data/libraries/<version>
 python eval/three_books.py data/libraries/<version> --cases eval/three_book_cases_v2.json --output data/three-book-evaluation-v2.json

@@ -81,7 +81,7 @@ async def verify(release, output, host=None, fixture_path=None):
                 report["checks"].append({"tool": "legacy get_section", "id": 27, "passed": True})
                 cases = {case["id"]: case for case in json.loads(fixture_path.read_text())["cases"]}
                 for name, mode in [("mi-wtp-en", "mix"), ("fs-icp-en", "mix"), ("de-beachhead-en", "mix"), ("all-pilot-ko", "mix"), ("all-segment-ko", "mix"), ("all-segment-ko", "naive"), ("unsupported-venus", "mix")]:
-                    case = cases[name]
+                    case = {**cases[name], "book_id": catalog.resolve_book_id(cases[name].get("book_id"))}
                     arguments = {"query": case["query"], "k": 5, "mode": mode}
                     if case.get("book_id"):
                         arguments["book_id"] = case["book_id"]

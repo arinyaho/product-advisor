@@ -395,8 +395,7 @@ class LibraryIndex:
     async def search(self, query, k, book_id, mode, scope):
         if mode not in ("mix", "naive") or not 1 <= k <= 20 or not 3 <= len(query.strip()) <= 8000:
             raise ValueError("Use mode mix/naive, k 1..20, and a query of 3..8000 characters")
-        if book_id is not None and book_id not in self.catalog.books:
-            raise ValueError("Unknown book_id")
+        book_id = self.catalog.resolve_book_id(book_id)
         if not self.ready.is_set():
             return {"retrieval": {"requested_mode": mode, "actual_mode": None, "status": self.error or "building", "fallback": False}, "results": []}
         future = asyncio.run_coroutine_threadsafe(self._search(query, k, book_id, mode, scope), self.loop)

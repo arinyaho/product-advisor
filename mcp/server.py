@@ -93,7 +93,7 @@ def _end_page(i):
 
 SECTIONS = [
     {"id": i, "level": lv, "title": t.strip(), "start": p, "end": _end_page(i)}
-    for i, (lv, t, p) in enumerate(toc) if t.strip() not in SKIP
+    for i, (lv, t, p) in enumerate(toc) if t.strip() not in SKIP and not t.strip().startswith("Praise for ")
 ]
 NOTES_START = next(p for _, t, p in toc if t == "NOTES")
 CONTENT_PAGES = range(SECTIONS[0]["start"], NOTES_START)  # notes are linked to the body, not searched
@@ -336,6 +336,11 @@ SUMMARY_PROMPT = (
     "is short, summarize what is there without remarking on what is missing. Mention a chapter number only if the "
     "text names it. Do not quote more than five consecutive words.{intro}\n\n"
 )
+_registration_path = DATA_DIR / "library-sources.json"
+if _registration_path.exists():
+    SUMMARY_PROMPT = json.loads(_registration_path.read_text()).get("legacy_summary_prompt", SUMMARY_PROMPT)
+    if not isinstance(SUMMARY_PROMPT, str):
+        raise ValueError("The private legacy summary prompt must be text")
 INTRO_NOTE = (" This text is only the introduction of the section; its subsections are summarized separately, so "
               "summarize the introduction and name what it says the subsections cover.")
 

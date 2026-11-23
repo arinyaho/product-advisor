@@ -411,7 +411,7 @@
   ],
   "annotation_revision": {
     "parent_fixture": "three_book_cases.json",
-    "parent_sha256": "2ee407af9803cd52948dacaa0cfff806bd985add81e5136ea8d41226187001dd",
+    "parent_sha256": "44781921b166393aa3012f1812127de4cd81a4c644c3e72197c726c07cd0c121",
     "authorization": "User authorized proceeding with the source-reviewed correction on 2026-11-23.",
     "case_id": "all-pilot-ko",
     "additions": [
@@ -500,6 +500,7 @@
         "source_sha256": "98b82e301b7fb7a67fc23d0258464872c2f13de2f7b4da6e1191f20a5790cf67",
         "assessment": "Check DMU purchasing-authority limits and the purchase process to understand budget-related price friction."
       }
-    ]
+    ],
+    "public_labels": "Bibliographic labels anonymized; questions and expected source IDs unchanged."
   }
 }

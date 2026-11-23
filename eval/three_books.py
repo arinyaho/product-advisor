@@ -56,6 +56,7 @@ async def evaluate(directory, output, fixture_path=Path(__file__).parent / "thre
         assert index.catalog.section(27)[1]["title"] == "The Information You Need from Those Early Pricing Talks"
         rows = retained
         for case in fixture["cases"]:
+            case = {**case, "book_id": index.catalog.resolve_book_id(case.get("book_id"))}
             for mode in ("mix", "naive"):
                 if any(row["case"] == case["id"] and row["mode"] == mode for row in retained):
                     continue

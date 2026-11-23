@@ -2,15 +2,11 @@
 
 TL;DR: Product Advisor helps teams working toward their first paying customer and a repeatable product business examine customer selection, value, founder sales, buying decisions, packaging, and pricing. A skill combines the user's context with source evidence retrieved from three books through an authenticated MCP server.
 
-## Reference books
+## Private reference library
 
-| Book | Author | Main use | Registered edition |
-|---|---|---|---|
-| *Reference A* | Author A1 and Author A2 | Willingness to pay, segmentation, packaging, pricing, value communication | Authorized India Edition; copyright 2016; publication year unverified |
-| *Reference B* | Author B | Initial customers, discovery, qualification, objections, pilots, closing | PDF text edition; publication year and numbered edition unverified |
-| *Reference C: Private reference material* | Author C | Beachhead market, persona, value proposition, buying roles, acquisition process | Expanded & Updated; 2024, 10th-anniversary edition |
+The private library covers willingness to pay, packaging, pricing, founder sales, customer selection, value propositions and buying decisions. Titles, authors, editions, filenames and source-specific identifiers are configured outside Git and returned only through the authenticated MCP service.
 
-Book files are private runtime inputs, not part of this repository or its license. The repository and Docker image contain no books, credentials, or indices. A server operator must supply authorized source files and build the library; cloning the repository alone does not provide book access.
+Book files and registration metadata are private runtime inputs, not part of this repository or its license. The repository and Docker image contain no books, credentials, or indices. A server operator must supply authorized sources; cloning this repository alone does not provide book access.
 
 ## Use it
 
@@ -121,7 +117,7 @@ scripts/deploy.sh user@host list-keys
 
 The deployed release passed 15 development questions in each mode and 12 actual MCP acceptance checks. The v2 annotations explicitly add five source-reviewed passages omitted from v1; the original 14/15 failures remain recorded. Passing means at least one expected source was returned, not that every result is relevant or that GraphRAG is better than vector retrieval. See the [validation record](docs/three-book-validation.md) for the exact deployed profile, model versions, costs, latency and rollback evidence.
 
-The follow-up body-evidence filter has its own [regression cases](eval/three_book_evidence_cases.json) and private evaluation receipts; it is separate from the recorded production deployment until explicitly released. See [evaluation instructions](eval/README.md) for provider-backed comparisons and local tests. Image-only EPUB text is not OCRed, and Reference B edition/year remain unverified.
+The follow-up body-evidence filter has its own [regression cases](eval/three_book_evidence_cases.json) and private evaluation receipts; it is separate from the recorded production deployment until explicitly released. See [evaluation instructions](eval/README.md) for provider-backed comparisons and local tests. Image-only EPUB text is not OCRed, and unverified edition/year fields remain explicitly marked.
 
 ## Documentation
 

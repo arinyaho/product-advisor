@@ -80,14 +80,17 @@ def _metadata(path, book_id, title, authors, edition, evidence):
     return {"book_id": book_id, "title": title, "authors": authors, "edition": edition, "format": path.suffix.lower()[1:], "sha256": digest(path.read_bytes()), "source_filename": path.name, "parser_version": PARSER_VERSION, "metadata_evidence": evidence, "sections": [], "units": [], "chunks": []}
 
 
-def monetizing(path, legacy):
+
+def registered_metadata(path, registration):
+    if digest(path.read_bytes()) != registration["sha256"]:
+        raise ValueError("Source differs from its private registration")
+    return _metadata(path, registration["book_id"], registration["title"], registration["authors"], registration["edition"], registration["metadata_evidence"])
+
+def primary_pdf(path, legacy, registration):
     if digest(path.read_bytes()) != digest(Path(legacy.BOOK_PDF).read_bytes()):
         raise ValueError("Provided Reference A file differs from the legacy source; compatibility must be reviewed")
-    copyright_page = legacy.PAGES[8]
-    if "Authorized India Edition" not in copyright_page or "2016" not in copyright_page:
-        raise ValueError("Reference A copyright evidence changed")
-    book = _metadata(path, MI, "Reference A: Private reference material", ["Author A1", "Author A2"], "Authorized India Edition; copyright 2016; publication year not verified", {"title_pdf_page": 7, "copyright_pdf_page": 8, "isbn": ["private-isbn", "private-isbn"], "publication_year_verified": False})
-    book["sections"] = [{**section, "book_id": MI, "chapter": next((s["title"] for s in reversed(legacy.SECTIONS) if s["level"] == 2 and s["start"] <= section["start"]), section["title"])} for section in legacy.SECTIONS]
+    book = registered_metadata(path, registration)
+    book["sections"] = [{**section, "book_id": book["book_id"], "chapter": next((s["title"] for s in reversed(legacy.SECTIONS) if s["level"] == 2 and s["start"] <= section["start"]), section["title"])} for section in legacy.SECTIONS]
     sections = {section["id"]: section for section in book["sections"]}
     for number, text in legacy.PAGES.items():
         book["units"].append({"unit_id": f"pdf:{number}", "text": text, "pdf_page": number, "printed_page": None})
@@ -107,12 +110,12 @@ def monetizing(path, legacy):
     return book
 
 
-def founding(path):
+def outlined_pdf(path, registration):
     document = pymupdf.open(path)
     title = words(document[0].get_text())
-    if not title.startswith("Reference B:"):
+    if title != words(registration["title"]):
         raise ValueError("Reference B title page did not match")
-    book = _metadata(path, FS, title, ["Author B"], "Unnumbered PDF text edition; publication year and edition not verified", {"title_pdf_page": 1, "author_source": "user supplied; no author credit found inside PDF", "publication_year_verified": False, "pdf_creation_date_is_not_publication_date": True})
+    book = registered_metadata(path, registration)
     toc_text = "\n".join(document[index].get_text() for index in range(1, 5))
     entries = []
     pending = ""
@@ -135,7 +138,7 @@ def founding(path):
         level = 1 if re.match(r"Chapter \d+:|Introduction:|Part \d+:|Further Reading", heading) else 2
         if level == 1:
             chapter = heading
-        book["sections"].append({"id": f"{FS}:s{index:03d}", "book_id": FS, "level": level, "title": heading, "chapter": chapter, "start": number, "end": entries[index + 1][1] if index + 1 < len(entries) else len(document)})
+        book["sections"].append({"id": f"{book['book_id']}:s{index:03d}", "book_id": book["book_id"], "level": level, "title": heading, "chapter": chapter, "start": number, "end": entries[index + 1][1] if index + 1 < len(entries) else len(document)})
     raw_units = []
     for page in document:
         tables = page.find_tables().tables
@@ -236,7 +239,7 @@ def _html_text(element):
     return clean(output)
 
 
-def entrepreneurship(path):
+def epub(path, registration):
     with zipfile.ZipFile(path) as archive:
         text_members = [item for item in archive.infolist() if PurePosixPath(item.filename).suffix.lower() in (".xhtml", ".html", ".xml", ".opf", ".ncx")]
         if sum(item.file_size for item in text_members) > 32_000_000 or any(item.file_size > 8_000_000 for item in text_members):
@@ -247,12 +250,12 @@ def entrepreneurship(path):
         metadata = next(element for element in package if _tag(element) == "metadata")
         titles = [element.text for element in metadata if _tag(element) == "title"]
         authors = [element.text for element in metadata if _tag(element) == "creator"]
-        if "Author C" not in authors or "Expanded" not in titles[0]:
+        if ": ".join(titles) != registration["title"] or authors != registration["authors"]:
             raise ValueError("EPUB title/author evidence did not match")
         manifest = {element.get("id"): element.attrib for element in package.iter() if _tag(element) == "item"}
         nav = next(item for item in manifest.values() if "nav" in item.get("properties", "").split())
         navigation = ET.fromstring(archive.read(posixpath.join(base, nav["href"])))
-        book = _metadata(path, DE, ": ".join(titles), authors, "Expanded & Updated; 10th-anniversary edition; 2024", {"package": opf, "publication_date": next((element.text for element in metadata if _tag(element) == "date"), None), "isbn": "private-isbn", "copyright_document": posixpath.join(base, "f02.xhtml"), "edition_evidence": "Navigation/preface: Expanded and Enhanced 10th-Anniversary Edition"})
+        book = registered_metadata(path, registration)
         nav_root = next(element for element in navigation.iter() if _tag(element) == "nav" and "toc" in " ".join(element.attrib.values()))
         def walk_nav(element, level=0):
             for child in element:
@@ -262,7 +265,7 @@ def entrepreneurship(path):
                     link = next((node for node in child if _tag(node) == "a"), None)
                     if link is not None:
                         parsed = urlsplit(link.get("href", ""))
-                        book["sections"].append({"id": f"{DE}:s{len(book['sections']):03d}", "book_id": DE, "level": level, "title": words(_html_text(link)), "href": posixpath.normpath(posixpath.join(base, unquote(parsed.path))), "anchor": unquote(parsed.fragment)})
+                        book["sections"].append({"id": f"{book['book_id']}:s{len(book['sections']):03d}", "book_id": book["book_id"], "level": level, "title": words(_html_text(link)), "href": posixpath.normpath(posixpath.join(base, unquote(parsed.path))), "anchor": unquote(parsed.fragment)})
                     walk_nav(child, level)
         walk_nav(nav_root)
         skip = {"Cover", "Table of Contents", "Title Page", "Copyright", "Dedication", "Index", "About the Author", "End User License Agreement"}
@@ -349,10 +352,19 @@ class Catalog:
                 raise ValueError(f"Source hash changed: {book['book_id']}")
         return catalog
 
-    def section(self, identifier, book_id=None):
-        selected = book_id or (MI if isinstance(identifier, int) else str(identifier).split(":", 1)[0])
-        if selected not in self.books:
+    def resolve_book_id(self, identifier):
+        if identifier is None or identifier in self.books:
+            return identifier
+        aliases = dict(zip((MI, FS, DE), self.books))
+        if identifier not in aliases:
             raise ValueError("Unknown book_id")
+        return aliases[identifier]
+
+    def section(self, identifier, book_id=None):
+        selected = self.resolve_book_id(book_id or (next(iter(self.books)) if isinstance(identifier, int) else str(identifier).split(":", 1)[0]))
+        if isinstance(identifier, str):
+            prefix, separator, suffix = identifier.partition(":")
+            identifier = self.resolve_book_id(prefix) + separator + suffix
         section = next((section for section in self.books[selected]["sections"] if section["id"] == identifier), None)
         if section is None:
             raise ValueError("Unknown section id for this book")
@@ -373,8 +385,7 @@ class Catalog:
         return True
 
     def list_sections(self, book_id=None, offset=0, limit=100):
-        if book_id is not None and book_id not in self.books:
-            raise ValueError("Unknown book_id")
+        book_id = self.resolve_book_id(book_id)
         if offset < 0 or not 1 <= limit <= 100:
             raise ValueError("Use offset >= 0 and limit 1..100")
         sections = [{**section, "book_id": book["book_id"], "book_title": book["title"], "edition": book["edition"]} for book in self.books.values() if not book_id or book["book_id"] == book_id for section in book["sections"]]
@@ -382,6 +393,7 @@ class Catalog:
 
     def read(self, identifier, book_id, start_page, scope):
         book, section = self.section(identifier, book_id)
+        identifier = section["id"]
         position = book["sections"].index(section)
         selected = {section["id"]}
         for child in book["sections"][position + 1:]:

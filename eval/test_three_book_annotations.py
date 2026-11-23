@@ -8,7 +8,7 @@ from pathlib import Path
 def test_v2_only_adds_the_five_audited_sources():
     root = Path(__file__).parent
     original = (root / "three_book_cases.json").read_bytes()
-    assert hashlib.sha256(original).hexdigest() == "2ee407af9803cd52948dacaa0cfff806bd985add81e5136ea8d41226187001dd"
+    assert hashlib.sha256(original).hexdigest() == "44781921b166393aa3012f1812127de4cd81a4c644c3e72197c726c07cd0c121"
     v1, v2 = json.loads(original), json.loads((root / "three_book_cases_v2.json").read_text())
     revision = v2["annotation_revision"]
     assert revision["parent_sha256"] == hashlib.sha256(original).hexdigest()

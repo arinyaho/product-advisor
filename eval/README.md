@@ -68,3 +68,5 @@ The judge reuses earlier judgments, so only pages the new run brings in are judg
 ## Recorded results
 
 `results/pooled/` holds the 30 questions, the runs of the nine chunking variants in docs/experiments.md, 315 judgments, and `spot_check.md`: 20 judgments sampled for a person to check against the book, since LLM judges grade more leniently than people.
+
+Privacy note: Public bibliographic labels and aliases were anonymized without changing evaluation questions, expected source chunk identities or private historical receipts. Original fixture bytes remain only in the private recovery snapshot; public fixture hashes therefore differ from pre-anonymization receipts. New evaluations must use fresh output files.

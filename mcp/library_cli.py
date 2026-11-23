@@ -10,13 +10,21 @@ import shutil
 import numpy as np
 
 import server
-from book_library import Catalog, atomic_json, book_summary, digest, entrepreneurship, founding, monetizing
+from book_library import Catalog, atomic_json, book_summary, digest, epub, outlined_pdf, primary_pdf
 from library_index import EMBED_MODEL, FIXED_CONFIG, RETRIEVAL_CONFIG, Provider, build, close_engine, engine, preserve_source_text
 
 
-def prepare(source_root):
-    sources = [source_root / "source-1.pdf", source_root / "source-2.pdf", source_root / "source-3.epub"]
-    books = [monetizing(sources[0], server), founding(sources[1]), entrepreneurship(sources[2])]
+def source_books(source_root, registration_path):
+    entries = json.loads(Path(registration_path).read_text())["sources"]
+    if len(entries) != 3 or len({entry["book_id"] for entry in entries}) != 3:
+        raise ValueError("Register three distinct sources in the private source configuration")
+    builders = {"legacy_pdf": lambda path, entry: primary_pdf(path, server, entry), "outlined_pdf": outlined_pdf, "epub": epub}
+    return [builders[entry["parser"]](source_root / entry["source_filename"], entry) for entry in entries]
+
+
+def prepare(source_root, registration_path):
+    books = source_books(source_root, registration_path)
+    sources = [source_root / book["source_filename"] for book in books]
     verified = Catalog(books)
     for chunk in verified.chunks.values():
         verified.verify_chunk(chunk)
@@ -114,6 +122,7 @@ if __name__ == "__main__":
     sub = parser.add_subparsers(dest="command", required=True)
     prep = sub.add_parser("prepare")
     prep.add_argument("--source-root", required=True, type=Path)
+    prep.add_argument("--registry", type=Path, default=server.DATA_DIR / "library-sources.json")
     run = sub.add_parser("build")
     run.add_argument("--directory", required=True, type=Path)
     run.add_argument("--max-chunks", type=int)
@@ -123,7 +132,7 @@ if __name__ == "__main__":
     reuse.add_argument("--from-directory", required=True, type=Path)
     args = parser.parse_args()
     if args.command == "prepare":
-        prepare(args.source_root)
+        prepare(args.source_root, args.registry)
     elif args.command == "build":
         asyncio.run(index(args.directory, args.max_chunks))
     elif args.command == "restore-source-text":
