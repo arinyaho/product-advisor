@@ -2,7 +2,7 @@
 
 TL;DR: The library serves source evidence from three private books through the existing MCP endpoint. Search defaults to all books and LightRAG `mix`; `naive` is retained for diagnosis. A release must pass source checks and the frozen retrieval evaluation before activation. The host transaction restores the old image and pointer unless real MCP acceptance succeeds.
 
-Current rollout status: the first candidate failed live acceptance and was rolled back. The user authorized the separate v2 [source-annotation correction](source-annotation-audit.md); evaluation and deployment of the revised query-only profile are in progress. The original frozen fixture and its failed result are preserved. See [current validation status](three-book-validation.md) for deployment evidence.
+Current rollout status: three-books-12acf0596c563f6f is deployed and accepted through the existing configured MCP endpoint. All 12 actual acceptance checks passed, followed by source-metadata verification in a separate session. The first candidate failed live acceptance and was rolled back; the original frozen fixture and failures remain preserved alongside the separate user-authorized v2 [source-annotation correction](source-annotation-audit.md). See [validation and rollback evidence](three-book-validation.md).
 
 ## Registered sources
 
