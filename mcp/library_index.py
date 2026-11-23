@@ -16,7 +16,7 @@ from lightrag import LightRAG, QueryParam
 from lightrag.operate import extract_entities
 from lightrag.utils import EmbeddingFunc, compute_mdhash_id, process_chunks_unified, sanitize_text_for_encoding
 
-from book_library import Catalog, atomic_json, book_summary, chunk_identity, digest, embedding_text, rendered_chunk
+from book_library import Catalog, atomic_json, book_summary, chunk_identity, digest, embedding_text, rendered_chunk, evidence_exclusion
 
 
 ENGINE_VERSION = "1.5.7"
@@ -28,7 +28,7 @@ DIMENSION = 2560
 EVIDENCE_TOKENS = 4000
 EXTRACT_SETTINGS = {"entity_extract_max_gleaning": 0, "entity_extract_max_records": 12, "entity_extract_max_entities": 6, "addon_params": {"language": "English", "entity_types": ["CONCEPT", "PROCESS", "ROLE", "METRIC", "ORGANIZATION"]}}
 FIXED_CONFIG = {"schema": INDEX_SCHEMA, "lightrag": ENGINE_VERSION, "embedding": EMBED_MODEL, "dimension": DIMENSION, "extraction": EXTRACT_MODEL, "rerank": RERANK_MODEL, "extraction_settings": EXTRACT_SETTINGS, "extraction_max_tokens": 1800, "temperature": 0}
-RETRIEVAL_CONFIG = {"normalization": "none_original_query", "rerank": RERANK_MODEL, "min_rerank_score": .15, "context_tokens": 24000, "mix_vector_candidate_pool": 40, "evidence_tokens": EVIDENCE_TOKENS}
+RETRIEVAL_CONFIG = {"normalization": "none_original_query", "evidence_filter": "body-evidence-v1", "rerank": RERANK_MODEL, "min_rerank_score": .15, "context_tokens": 24000, "mix_vector_candidate_pool": 40, "evidence_tokens": EVIDENCE_TOKENS}
 RETRIEVAL_VERSION = digest(json.dumps(RETRIEVAL_CONFIG, sort_keys=True).encode())[:16]
 
 
@@ -416,11 +416,14 @@ class LibraryIndex:
                 # Native mix packing can discard strong vector evidence before external reranking.
                 candidates = candidates + await rag.chunks_vdb.query(query, top_k=40)
             # The strict book filter was applied by selecting its own graph and vector stores.
-            mapped = []
+            mapped, excluded = [], set()
             for hit in candidates:
                 chunk = self.catalog.chunks[chunk_identity(hit["content"])]
                 if book_id and chunk["book_id"] != book_id:
                     raise RuntimeError("Scoped index leaked another book")
+                if evidence_exclusion(chunk):
+                    excluded.add(chunk["chunk_id"])
+                    continue
                 if chunk["chunk_id"] not in [item["chunk_id"] for item in mapped]:
                     mapped.append(chunk)
             candidate_count = len(mapped)
@@ -450,6 +453,8 @@ class LibraryIndex:
             result["retrieval"]["elapsed_ms"] = round((time.monotonic() - started) * 1000)
             result["retrieval"]["candidate_chunks"] = candidate_count
             result["retrieval"]["candidate_expansion"] = "same_lightrag_scoped_vector_pool" if mode == "mix" else "none"
+            result["retrieval"]["evidence_filter"] = RETRIEVAL_CONFIG["evidence_filter"]
+            result["retrieval"]["excluded_non_evidence_chunks"] = len(excluded)
             while result["results"] and len(rag.tokenizer.encode(json.dumps(result, ensure_ascii=False))) > EVIDENCE_TOKENS:
                 result["results"].pop()
             return result

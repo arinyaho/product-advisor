@@ -61,6 +61,18 @@ def test_incompatible_embedding_profile_is_rejected_without_writes(tmp_path, mon
     assert set(tmp_path.iterdir()) == before
 
 
+def test_query_filter_change_gets_its_own_release_without_reindexing(tmp_path, monkeypatch):
+    source, _ = source_release(tmp_path, monkeypatch)
+    library_cli.reuse_query_profile(source)
+    first = json.loads((tmp_path / "data/library-candidate.json").read_text())["version"]
+    monkeypatch.setattr(library_cli, "RETRIEVAL_CONFIG", {**library_cli.RETRIEVAL_CONFIG, "evidence_filter": "different-filter"})
+    library_cli.reuse_query_profile(source)
+    second = json.loads((tmp_path / "data/library-candidate.json").read_text())["version"]
+    assert first != second
+    assert (tmp_path / first / "catalog.json").read_bytes() == (tmp_path / second / "catalog.json").read_bytes()
+    assert json.loads((tmp_path / second / "ready.json").read_text())["new_paid_index_calls"] == 0
+
+
 def test_completed_index_is_validated_without_starting_paid_build(tmp_path, monkeypatch):
     atomic_json(tmp_path / "manifest.json", {"config": FIXED_CONFIG})
     atomic_json(tmp_path / "ready.json", {})

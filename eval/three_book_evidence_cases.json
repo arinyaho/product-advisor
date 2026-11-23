@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "catalog_version": "three-books-12acf0596c563f6f",
+  "source_review": "Development regression questions generalized from a product-review workflow. Expected body passages were read and their source positions reviewed before changing the evidence filter. No customer records or book text are included. This is not a held-out benchmark.",
+  "cases": [
+    {
+      "id": "evidence-lifecycle",
+      "book_id": "book-c",
+      "query": "In the full life cycle use case and quantified value proposition, how should a startup account for a customer acquiring, installing, using and maintaining the product, workarounds and the cost of switching?",
+      "expected_chunk_ids": [
+        "src-a6a7a94b0ebf3f072115b612",
+        "src-8e08db00099bf4aeb5bd895c"
+      ]
+    },
+    {
+      "id": "evidence-pilot",
+      "book_id": "book-b",
+      "query": "A pilot evaluation has ended but the customer has not purchased. How should we qualify need, budget, authority, decision process and get concrete next steps?",
+      "expected_chunk_ids": [
+        "src-a2e0d0d65921e693ac0612f9",
+        "src-ef49e543f16aaa5bb5c05b81"
+      ]
+    },
+    {
+      "id": "evidence-reoffer",
+      "book_id": null,
+      "query": "기업 고객의 파일럿이 끝났지만 구매하지 않았다. 제품에서 AI 답변 생성을 빼고 자료 검색과 선별 기능만 싸게 다시 제안하려 한다. 고객과 구매 과정을 무엇으로 검증해야 하나?",
+      "expected_chunk_ids": [
+        "src-cccfaa1179f93f5c17e40cb7",
+        "src-ef49e543f16aaa5bb5c05b81",
+        "src-871594609bff2c31c44d63c3"
+      ]
+    }
+  ]
+}

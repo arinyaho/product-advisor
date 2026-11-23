@@ -8,11 +8,12 @@ import statistics
 import time
 
 import server
-from book_library import atomic_json, digest
+from book_library import atomic_json, digest, evidence_exclusion
 from library_index import EVIDENCE_TOKENS, LibraryIndex, Provider, RETRIEVAL_VERSION
 
 
 FROZEN_CATALOG_SHA256 = "317fc08f053815606ce73a60f805d39dcb6de04015dae440d73ce27e0a346d5e"
+EVALUATION_VERSION = "source-and-body-evidence-v1"
 
 
 async def evaluate(directory, output, fixture_path=Path(__file__).parent / "three_book_cases.json"):
@@ -21,6 +22,7 @@ async def evaluate(directory, output, fixture_path=Path(__file__).parent / "thre
     index = LibraryIndex(directory, server._openrouter)
     previous = json.loads(output.read_text()) if output.exists() else {}
     if previous:
+        assert previous.get("evaluation_version") == EVALUATION_VERSION, "Use a separate output file for a changed evaluation criterion"
         assert previous["version"] == index.version
         assert previous.get("retrieval_version") == RETRIEVAL_VERSION, "Use a separate output file for a changed retrieval configuration"
         assert previous.get("fixture_sha256") == fixture_sha256, "Evaluation questions or expected sources changed"
@@ -73,10 +75,11 @@ async def evaluate(directory, output, fixture_path=Path(__file__).parent / "thre
                 identities = [hit["chunk_id"] for hit in hits]
                 expected = case["expected_chunk_ids"]
                 matched = sorted(set(expected) & set(identities))
-                passed = valid and (bool(matched) if expected else not hits)
+                non_evidence = [identity for identity in identities if evidence_exclusion(index.catalog.chunks[identity])]
+                passed = valid and (bool(matched) if expected else not hits) and not non_evidence
                 events = index.provider.events[before:]
-                rows.append({"case": case["id"], "mode": mode, "passed": passed, "matched_expected": matched, "returned_ids": identities, "seconds": round(elapsed, 4), "calls": len(events), "cost_usd": sum(event["charged_or_estimated_usd"] for event in events), "provider_receipts": events, "retrieval": result["retrieval"]})
-                atomic_json(output, {"version": index.version, "retrieval_version": RETRIEVAL_VERSION, "fixture_sha256": fixture_sha256, "budget": EVIDENCE_TOKENS, "structural": structural, "rows": rows, "failed_attempts": failed_attempts})
+                rows.append({"case": case["id"], "mode": mode, "passed": passed, "matched_expected": matched, "non_evidence_ids": non_evidence, "returned_ids": identities, "seconds": round(elapsed, 4), "calls": len(events), "cost_usd": sum(event["charged_or_estimated_usd"] for event in events), "provider_receipts": events, "retrieval": result["retrieval"]})
+                atomic_json(output, {"version": index.version, "evaluation_version": EVALUATION_VERSION, "retrieval_version": RETRIEVAL_VERSION, "fixture_sha256": fixture_sha256, "budget": EVIDENCE_TOKENS, "structural": structural, "rows": rows, "failed_attempts": failed_attempts})
                 print(json.dumps(rows[-1]), flush=True)
                 if result["retrieval"].get("status") != "ready":
                     raise RuntimeError("Runtime failure; partial evaluation retained and paid calls stopped")
@@ -87,7 +90,7 @@ async def evaluate(directory, output, fixture_path=Path(__file__).parent / "thre
             confirmed = sum(event["charged_or_estimated_usd"] for event in receipts if event["status"] == "completed")
             unknown = sum(event["charged_or_estimated_usd"] for event in receipts if event["status"] != "completed")
             summary[mode] = {"passed": sum(row["passed"] for row in subset), "total": len(subset), "median_seconds": statistics.median(row["seconds"] for row in subset), "cost_usd": confirmed, "unknown_charge_reservation_usd": unknown, "calls": sum(row["calls"] for row in subset)}
-        atomic_json(output, {"version": index.version, "retrieval_version": RETRIEVAL_VERSION, "fixture_sha256": fixture_sha256, "budget": EVIDENCE_TOKENS, "structural": structural, "rows": rows, "summary": summary, "failed_attempts": failed_attempts, "provider_cost_or_reservation_usd": provider.cost, "comparison_cost_policy": "Both modes receive the same unchanged original question; no query translation or answer-generation call is made. Confirmed charges and unknown-charge reservations are reported separately."})
+        atomic_json(output, {"version": index.version, "evaluation_version": EVALUATION_VERSION, "retrieval_version": RETRIEVAL_VERSION, "fixture_sha256": fixture_sha256, "budget": EVIDENCE_TOKENS, "structural": structural, "rows": rows, "summary": summary, "failed_attempts": failed_attempts, "provider_cost_or_reservation_usd": provider.cost, "comparison_cost_policy": "Both modes receive the same unchanged original question; no query translation or answer-generation call is made. Confirmed charges and unknown-charge reservations are reported separately."})
         print(json.dumps(summary), flush=True)
         return all(row["passed"] for row in rows)
     finally:

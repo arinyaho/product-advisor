@@ -57,6 +57,20 @@ def embedding_text(content):
     return content.split("\n", 1)[1] if content.startswith(SOURCE_PREFIX) else content
 
 
+def evidence_exclusion(chunk):
+    """Keep navigation readable, but do not present it as source evidence."""
+    normalize = lambda text: re.sub(r"[\W_]+", " ", clean(text or "").casefold()).strip()
+    headings = {normalize(chunk.get(key)) for key in ("section", "chapter")} - {""}
+    if headings & {"index", "contents", "table of contents"}:
+        return "navigation"
+    text = normalize(chunk["text"])
+    if not text:
+        return "empty"
+    if text in headings:
+        return "heading_only"
+    return None
+
+
 def _chunk(book, section, text, location):
     identity = f"{book['book_id']}:{book['sha256']}:{PARSER_VERSION}:{section['id']}:{json.dumps(location, sort_keys=True)}:{digest(text.encode())}"
     return {"chunk_id": "src-" + digest(identity.encode())[:24], "book_id": book["book_id"], "section_id": section["id"], "section": section["title"], "chapter": section.get("chapter", section["title"]), "text": text, "location": location}

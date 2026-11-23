@@ -11,7 +11,7 @@ import numpy as np
 
 import server
 from book_library import Catalog, atomic_json, book_summary, digest, entrepreneurship, founding, monetizing
-from library_index import EMBED_MODEL, FIXED_CONFIG, Provider, build, close_engine, engine, preserve_source_text
+from library_index import EMBED_MODEL, FIXED_CONFIG, RETRIEVAL_CONFIG, Provider, build, close_engine, engine, preserve_source_text
 
 
 def prepare(source_root):
@@ -21,7 +21,7 @@ def prepare(source_root):
     for chunk in verified.chunks.values():
         verified.verify_chunk(chunk)
     catalog = {"books": books}
-    version = "three-books-" + digest(json.dumps({"config": FIXED_CONFIG, "catalog": catalog}, sort_keys=True, ensure_ascii=False).encode())[:16]
+    version = "three-books-" + digest(json.dumps({"config": FIXED_CONFIG, "retrieval": RETRIEVAL_CONFIG, "catalog": catalog}, sort_keys=True, ensure_ascii=False).encode())[:16]
     directory = server.DATA_DIR / "libraries" / version
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "sources").mkdir(exist_ok=True)
@@ -51,7 +51,7 @@ def reuse_query_profile(source):
         if digest((source / name).read_bytes()) != expected:
             raise ValueError("The source index differs from its sealed manifest")
     raw_catalog = json.loads((source / "catalog.json").read_text())
-    version = "three-books-" + digest(json.dumps({"config": FIXED_CONFIG, "catalog": raw_catalog}, sort_keys=True, ensure_ascii=False).encode())[:16]
+    version = "three-books-" + digest(json.dumps({"config": FIXED_CONFIG, "retrieval": RETRIEVAL_CONFIG, "catalog": raw_catalog}, sort_keys=True, ensure_ascii=False).encode())[:16]
     target = source.parent / version
     if target.exists():
         raise ValueError("Target release already exists; inspect it rather than overwriting it")
@@ -62,7 +62,7 @@ def reuse_query_profile(source):
     for scope in [*catalog.books, "all"]:
         base = target / "indices" / scope
         (base / (old_manifest["version"] + "-" + scope)).rename(base / (version + "-" + scope))
-    manifest = {**old_manifest, "version": version, "config": FIXED_CONFIG, "derived_from": old_manifest["version"], "reuse": "identical_sources_embeddings_and_extraction; query_reranker_changed"}
+    manifest = {**old_manifest, "version": version, "config": FIXED_CONFIG, "derived_from": old_manifest["version"], "reuse": "identical_sources_embeddings_and_extraction; query_profile_changed"}
     ready = {**old_ready, "config": FIXED_CONFIG, "new_paid_index_calls": 0, "derived_from": old_manifest["version"]}
     ready.pop("file_sha256", None)
     atomic_json(target / "manifest.json", manifest)
