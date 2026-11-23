@@ -1,50 +1,48 @@
-# product-advisor
+# Product Advisor
 
-TL;DR: Product Advisor searches three source books for customer selection, value validation, founder sales, purchase decisions, packaging, and pricing. A versioned LightRAG library serves source evidence through the existing authenticated MCP endpoint. Search defaults to all books and `mix`; `naive` remains available for comparison.
+TL;DR: Product Advisor helps teams working toward their first paying customer and a repeatable product business examine customer selection, value, founder sales, buying decisions, packaging, and pricing. A skill combines the user's context with source evidence retrieved from three books through an authenticated MCP server.
 
-The repository and Docker image contain no book files. Private PDFs, EPUB, source catalogs, indices, keys, and caches stay in the mounted `data/` directory. See [three-book operation and verification](docs/three-book-library.md).
+## Reference books
 
-## What it provides
+| Book | Author | Main use | Registered edition |
+|---|---|---|---|
+| *Reference A* | Author A1 and Author A2 | Willingness to pay, segmentation, packaging, pricing, value communication | Authorized India Edition; copyright 2016; publication year unverified |
+| *Reference B* | Author B | Initial customers, discovery, qualification, objections, pilots, closing | PDF text edition; publication year and numbered edition unverified |
+| *Reference C: Private reference material* | Author C | Beachhead market, persona, value proposition, buying roles, acquisition process | Expanded & Updated; 2024, 10th-anniversary edition |
 
-| Part | What it does |
+Book files are private runtime inputs, not part of this repository or its license. The repository and Docker image contain no books, credentials, or indices. A server operator must supply authorized source files and build the library; cloning the repository alone does not provide book access.
+
+## Use it
+
+1. Obtain the HTTPS MCP URL and your personal key from the server operator.
+2. [Connect a client](#connect-a-client) and install the skill.
+3. Ask the assistant to call `list_books()` and verify the three book IDs and `index_status=ready`.
+4. Ask a concrete situation question, then read the supporting passage before treating a recommendation as established.
+
+Example questions:
+
+- "파일럿은 끝났는데 고객이 구매하지 않는다. 다음 미팅에서 무엇을 확인해야 할까?"
+- "누구를 첫 고객군으로 좁혀야 할지 모르겠다."
+- "사용자는 좋아하지만 예산 결정권자를 모른다."
+- "첫 고객에게 어떤 범위와 가격으로 제안해야 할까?"
+- "Which features are leaders, fillers, or killers for this customer segment?"
+
+The skill helps interpret evidence; the MCP server returns source passages rather than generating an answer. Customer facts come from the conversation or team records the assistant can access separately. Purchase rejection does not establish a price objection, and usage does not establish willingness to pay. A result from every book is not required.
+
+## MCP tools
+
+| Tool | Behavior |
 |---|---|
-| Skill `product-advisor` | Loads on pricing, WTP, PMF, GTM, packaging, and sales topics in Korean or English; maps situations to frameworks; points Claude to the team's records in Notion, Google Drive, and Slack; and defines a one-page evaluation for a project handed down without a business case |
-| MCP server `product-advisor` | Lists, searches, and reads the reference material in Korean or English; each result names its page and section |
-| Keys | One key per person with an expiry and a scope: `full` for whole pages and sections, `excerpt` for short passages and summaries |
+| `list_books()` | Titles, authors, verified/unknown editions, source hashes, index version and readiness. |
+| `search_book(query, k=5, book_id=None, mode="mix")` | Searches all three books by default. A book filter selects its own graph and vector stores before retrieval. Korean situations and English concepts are supported; at most 20 requested chunks and 4,000 tokens including metadata. |
+| `list_sections(book_id=None, offset=0, limit=100)` | Book-identified contents with `total` and `next_offset`; all books when the filter is omitted. |
+| `get_section(id, start_page=None, book_id=None)` | Bounded source text and continuation arguments. Existing numeric IDs still identify the same Reference A sections. |
 
-The server keeps no team records or query history. Search requests go to OpenRouter for embedding and reranking but are never indexed. The three-book library returns book-specific source chunks and locations without generating an answer. Model-extracted graph links support navigation; they are not author quotations or verified customer facts. Manual concept maps, company ingestion, customer memory, and CRM are outside this release. `retrieve_decision_context` remains callable for compatibility and returns source evidence with no manual framework cards in library mode.
+Use `book_id="book-a"`, `"book-b"`, or `"book-c"` to constrain retrieval. Follow a hit's `read_section` arguments, then the returned continuation to read more. PDF locations are PDF pages; EPUB locations identify document, anchor, block and word range. Unverified printed pages remain null.
 
-## Quick start
+`mix` uses LightRAG graph navigation and source vectors; `naive` uses vectors for comparison. Check `requested_mode`, `actual_mode`, `status`, and `fallback` before relying on results. Failure returns `actual_mode=null`, `status=unavailable`, and `fallback=false`. Graph links are model-extracted or derived navigation, not author quotations or verified customer facts. Search excludes index/contents and heading-only chunks before reranking; their text and contents remain readable.
 
-For the three-book library, prepare and build an isolated release, seal it, run the frozen evaluations, and stage it using `scripts/deploy-library.py`. Activate it on the existing host and accept only after real MCP calls pass. [The library guide](docs/three-book-library.md) includes the commands and rollback procedure. The single-PDF command below remains the legacy installation path; do not use it to update an active three-book release.
-
-Deploy from any machine that can ssh into a Docker host, with the reference PDF and an OpenRouter key made for this server:
-
-```sh
-OPENROUTER_API_KEY=<key> scripts/deploy.sh user@host deploy path/to/reference.pdf
-```
-
-The script copies the server and the PDF, builds and starts the container, waits until the server is ready (about three minutes the first time), and prints a `full` key for you. Publish `127.0.0.1:8765` on the host through a reverse proxy that terminates HTTPS.
-
-[docs/deployment.md](docs/deployment.md) covers prerequisites, the reverse proxy, and troubleshooting.
-
-## Keys
-
-Each person gets their own key. Run these from a clone of this repository on a machine that can ssh into the host.
-
-```sh
-scripts/deploy.sh user@host issue-key alice --days 30                # excerpt scope, the default
-scripts/deploy.sh user@host issue-key bob --days 365 --scope full    # whole pages and sections
-scripts/deploy.sh user@host renew-key alice --days 30
-scripts/deploy.sh user@host revoke-key alice
-scripts/deploy.sh user@host list-keys
-```
-
-`issue-key` prints the key once; the server stores only its hash. Issuing a key for an existing name replaces that person's key. Send the key to the person over a private channel, such as a direct message, never in a shared channel or a repository. Changes apply on the next request, with no restart.
-
-## Set up a client
-
-Each user needs read access to this repository, the server's URL (`https://<host>/mcp`), and their own key.
+## Connect a client
 
 ### Claude Code
 
@@ -70,10 +68,12 @@ Each user needs read access to this repository, the server's URL (`https://<host
 
 ### Codex
 
-1. Export the key in the shell Codex starts from, for example in `~/.zshrc`:
+1. Supply the key through your secret manager or a hidden terminal prompt in the shell that launches Codex. For example, in Bash:
 
-   ```sh
-   export PRODUCT_ADVISOR_MCP_KEY=<your key>
+   ```bash
+   read -r -s -p 'Product Advisor key: ' PRODUCT_ADVISOR_MCP_KEY
+   export PRODUCT_ADVISOR_MCP_KEY
+   printf '\n'
    ```
 
 2. Register the MCP server. Codex reads the key from that variable on each start:
@@ -86,30 +86,55 @@ Each user needs read access to this repository, the server's URL (`https://<host
 
    ```sh
    git clone https://github.com/arinyaho/product-advisor.git ~/product-advisor
+   mkdir -p ~/.codex/skills
    ln -s ~/product-advisor/skills/product-advisor ~/.codex/skills/product-advisor
    ```
 
 4. Check that `codex mcp list` shows `product-advisor` as enabled.
 
+Codex must inherit that environment variable when it starts. See the [official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli). Never commit a key or put its value in a command argument. Keep Claude's private settings file outside Git. After either client is connected, verify actual `list_books`, search and source-reading calls; a configured server alone does not prove it is usable.
+
+## Access and data flow
+
+- Each person has a separate expiring key. Library `full` reads return up to 2,000 words and ten PDF pages; `excerpt` reads return up to 60 words. Legacy numeric Reference A calls retain their existing full-text/summary behavior.
+- The server does not index team records or persist query history. OpenRouter receives queries for multilingual embeddings and candidate passages for reranking. Offline graph extraction also uses OpenRouter. Original Korean and English queries are not rewritten or translated.
+- Team records are read through the assistant's separately authorized connectors. They are not part of the book index.
+- Raw books, catalogs, indices, keys, extraction caches and private evaluation receipts stay in mounted `data/` storage. Keys are stored as hashes; replacing a key for an existing name invalidates that person's previous key.
+- Manual concept maps, company ingestion, customer memory and CRM are outside the three-book release. `retrieve_decision_context` remains callable for compatibility and returns no manual framework cards in library mode.
+
+## Operate the server
+
+Use the [three-book library guide](docs/three-book-library.md) to prepare an isolated release, build or reuse an index, verify source locations, seal it, evaluate it, and stage it. Activation preserves the old image and data and requires acceptance through real MCP calls; failure or timeout restores the previous service. A health check alone is not deployment acceptance.
+
+The single-PDF `scripts/deploy.sh ... deploy ...` command is the legacy installation path. Do not use it to update an active three-book library. Existing key-management commands remain available to operators:
+
+```sh
+scripts/deploy.sh user@host issue-key alice --days 365 --scope full
+scripts/deploy.sh user@host renew-key alice --days 365
+scripts/deploy.sh user@host revoke-key alice
+scripts/deploy.sh user@host list-keys
+```
+
+`issue-key` prints the new key once. Deliver it through a private channel. Key changes apply to the next request without a service restart.
+
+## Validation and limits
+
+The deployed release passed 15 development questions in each mode and 12 actual MCP acceptance checks. The v2 annotations explicitly add five source-reviewed passages omitted from v1; the original 14/15 failures remain recorded. Passing means at least one expected source was returned, not that every result is relevant or that GraphRAG is better than vector retrieval. See the [validation record](docs/three-book-validation.md) for the exact deployed profile, model versions, costs, latency and rollback evidence.
+
+The follow-up body-evidence filter has its own [regression cases](eval/three_book_evidence_cases.json) and private evaluation receipts; it is separate from the recorded production deployment until explicitly released. See [evaluation instructions](eval/README.md) for provider-backed comparisons and local tests. Image-only EPUB text is not OCRed, and Reference B edition/year remain unverified.
+
 ## Documentation
 
 | Document | Content |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Components, indexing and search data flow, tools, access control and threats, failure handling, caches, design decisions |
-| [docs/deployment.md](docs/deployment.md) | Deploying to a Docker host, reverse proxy, keys, operations |
-| [docs/experiments.md](docs/experiments.md) | The experiments behind the design and the evaluation methods |
-| [eval/README.md](eval/README.md) | Running the evaluations and comparing a change |
-
-## Test
-
-```sh
-cd mcp
-BOOK_PDF=/path/to/reference.pdf OPENROUTER_API_KEY=<key> \
-  uv run --python 3.13 --with-requirements requirements.txt --with httpx python test_server.py
-```
-
-The tests run against a real PDF and OpenRouter. Set `DATA_DIR` to a directory that already holds the caches to skip the three-minute build.
+| [Three-book library](docs/three-book-library.md) | Sources, tools, models, build, cache reuse, deployment and rollback |
+| [Validation and deployment](docs/three-book-validation.md) | Verified editions/scope, actual MCP evidence, costs, failures and limitations |
+| [Evaluation](eval/README.md) | Fixed questions, body-evidence checks and comparison commands |
+| [Source annotation audit](docs/source-annotation-audit.md) | Explicit v1-to-v2 correction and retained failures |
+| [Architecture](docs/architecture.md) | Component responsibilities and data flow |
+| [Host operations](docs/deployment.md) | Docker host prerequisites, reverse proxy and key management |
+| [Earlier experiments](docs/experiments.md) | Historical single-book experiments |
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) covers this repository's code. The reference books have their own rights and are not distributed here.
