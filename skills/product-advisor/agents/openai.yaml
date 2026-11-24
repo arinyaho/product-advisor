@@ -1,0 +1,11 @@
+interface:
+  display_name: "Product Advisor"
+  short_description: "Evidence for GTM, pricing, WTP and first customer sales"
+  default_prompt: "Use $product-advisor to review this customer decision using MCP evidence."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "product-advisor"
+      description: "Authenticated reference search and source reading"
+policy:
+  allow_implicit_invocation: true

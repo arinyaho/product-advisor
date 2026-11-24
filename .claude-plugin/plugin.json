@@ -1,7 +1,7 @@
 {
   "name": "product-advisor",
-  "description": "Advises on pricing, willingness to pay, PMF, GTM, packaging, and sales, and grounds advice in reference material and the team's own product records.",
-  "version": "0.1.0",
+  "description": "Uses Product Advisor MCP evidence for GTM, pricing, WTP, PMF, ICP, packaging, founder sales and buying decisions, including Korean customer situations.",
+  "version": "0.1.1",
   "license": "MIT",
   "author": { "name": "arinyaho" }
 }

@@ -1,6 +1,6 @@
 ---
 name: product-advisor
-description: Use whenever the conversation is about whether a product or solution is worth building or selling, or how to sell it — pricing, willingness to pay (WTP), product-market fit (PMF), go-to-market (GTM), packaging and bundling, tiers, monetization models (subscription, usage-based, freemium), value propositions, customer segmentation, sales pitches, competitor price moves, or a new project handed down without a clear business case. Also triggers on Korean phrasing such as 가격, 과금, 지불 의사, 고객이 돈을 낼까, 제품 구성, 패키징, 영업, 시장 반응, 가치 제안, 사업성, 위에서 내려온 과제. Grounds advice in the reference material served by the product-advisor MCP server and in the team's own records in Notion, Google Drive, and Slack.
+description: Use Product Advisor MCP before substantive advice on GTM (go-to-market), pricing, WTP (willingness to pay), PMF, ICP, customer discovery, segmentation, value propositions, packaging, bundling, monetization, founder sales, pilots, or buying decisions. Match Korean situations too, including 시장 진입, 가격, 과금, 지불 의사, 첫 유료 고객, 고객군, 가치 제안, 제품 구성, 영업, 파일럿 후 구매 거절, and 사업성. Apply even without an explicit MCP request. Exclude pure translation, formatting, implementation, and MCP administration unless the user also asks for a business decision.
 ---
 
 # Product advisor
@@ -8,6 +8,15 @@ description: Use whenever the conversation is about whether a product or solutio
 TL;DR: Help a team at the first-paying-customer stage choose customers, verify problems and value, sell, understand buying decisions, and define an offer and price. Use *Reference A*, *Reference B*, and *Reference C Expanded & Updated* as distinct sources, preserving each author's conditions and definitions.
 
 Give advice the team can act on and defend. Every recommendation names the evidence behind it: a book page from the MCP server, or a team record with its link. Say which parts are assumptions still to be checked with customers.
+
+## When to use the MCP
+
+- Use this skill automatically for a matching business question, including follow-up questions; the user does not need to name the skill or MCP.
+- Before substantive advice, retrieve relevant passages through `product-advisor` MCP. Start with `list_books` once per conversation to check readiness, then `search_book(query=..., k=5, mode="mix")` without a book filter unless the question requires one. Reuse already retrieved passages when they directly support a follow-up; search again when the decision or evidence changes.
+- Search the concrete customer situation in Korean or the relevant concept in English. For example, use "파일럿은 끝났는데 고객이 구매하지 않는다" for a stalled purchase, or "willingness to pay pricing conversation" for price validation. Read the relevant passage using its returned `read_section` arguments before citing it.
+- Separate confirmed customer facts, hypotheses, and unknowns. End a decision review with the next buying-validation action and the evidence that would change the recommendation.
+- If MCP access fails or relevant evidence is absent, state the gap. Label any general advice as unverified; do not claim the MCP or a source supports it.
+- A word appearing in quoted text or code is not enough. Pure translation, copyediting, implementation of an already decided price, access-key administration, and logging work do not require book retrieval. If the user also asks whether the offer, price, or sales approach is right, retrieve evidence for that decision.
 
 ## Source retrieval
 
