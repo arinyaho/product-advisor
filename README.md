@@ -30,6 +30,11 @@ The skill helps interpret evidence; the MCP server returns source passages rathe
 The [company context service](company_context/README.md) runs a separate LightRAG snapshot and authenticated MCP on a company host. It returns original company passages and graph descriptions with handles for checking their sources. Company records and indices stay separate from the public book service; external model processing requires explicit operator configuration.
 
 The Product Advisor skill performs three roles: retrieve textbook evidence, reconstruct company context, and combine both to support a decision. The Claude Code [Product Manager agent](agents/product-manager.md) uses this integrated skill and calls both MCPs independently. The user owns the decision. Three standalone skills are not implemented. Only generic conceptual questions go to the book MCP.
+### Automatic skill selection
+
+The skill description matches GTM, pricing, WTP, PMF, ICP, customer discovery, packaging, founder sales, and buying decisions, including Korean situation questions. It instructs the assistant to retrieve MCP evidence before substantive business advice, even when the user does not mention the MCP. Directly relevant evidence can be reused for follow-ups. Pure translation, formatting, implementation of an already decided price, and MCP administration are outside this routing scope.
+
+This is implicit skill invocation, not a hook. The client chooses the skill from its description; `agents/openai.yaml` explicitly permits implicit invocation and declares the existing `product-advisor` MCP dependency. Selection is model-driven, not a guaranteed keyword rule. Use `$product-advisor` in Codex when explicit invocation is needed. Codex detects skill edits automatically; restart Codex if an edit does not appear. Other clients must update their installed plugin. See the [official skill documentation](https://learn.chatgpt.com/docs/build-skills).
 
 ## MCP tools
 
