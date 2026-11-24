@@ -68,6 +68,13 @@ Use `book_id="book-a"`, `"book-b"`, or `"book-c"` to constrain retrieval. Follow
 
 3. Check that `claude mcp list` shows `plugin:product-advisor:product-advisor` as connected.
 
+The shared skill also supports automatic selection in Claude Code. Invoke `/product-advisor:product-advisor` explicitly when needed. After a published update, refresh this marketplace and update the installed plugin, then restart Claude Code:
+
+```sh
+claude plugin marketplace update product-advisor
+claude plugin update product-advisor@product-advisor
+```
+
 ### Codex
 
 1. Supply the key through your secret manager or a hidden terminal prompt in the shell that launches Codex. For example, in Bash:
