@@ -83,6 +83,13 @@ The token stays on the company host. Verify both servers with `claude mcp get co
 
 For local development before installing an updated plugin, copy `agents/product-manager.md` into `~/.claude/agents/product-manager.md` and use `claude --agent product-manager`. Keep the installed `product-advisor:product-advisor` skill current; a local agent copy does not update itself when the repository changes.
 
+The shared skill also supports automatic selection in Claude Code. Invoke `/product-advisor:product-advisor` explicitly when needed. After a published update, refresh this marketplace and update the installed plugin, then restart Claude Code:
+
+```sh
+claude plugin marketplace update product-advisor
+claude plugin update product-advisor@product-advisor
+```
+
 ### Codex
 
 1. Supply the key through your secret manager or a hidden terminal prompt in the shell that launches Codex. For example, in Bash:
