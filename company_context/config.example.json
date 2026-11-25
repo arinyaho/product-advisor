@@ -1,0 +1,9 @@
+{
+  "chat_url": "http://models.internal:8000/v1",
+  "embedding_url": "http://embeddings.internal:8000/v1",
+  "chat_model": "configured-chat-model",
+  "embedding_model": "configured-embedding-model",
+  "dimensions": 2560,
+  "chat_key_file": "/run/secrets/chat-key",
+  "embedding_key_file": "/run/secrets/embedding-key"
+}

@@ -25,6 +25,12 @@ Example questions:
 
 The skill helps interpret evidence; the MCP server returns source passages rather than generating an answer. Customer facts come from the conversation or team records the assistant can access separately. Purchase rejection does not establish a price objection, and usage does not establish willingness to pay. A result from every book is not required.
 
+## Optional private company context
+
+The [company context service](company_context/README.md) runs a separate LightRAG snapshot and authenticated MCP on a company host. It returns original company passages and graph descriptions with handles for checking their sources. Company records and indices stay separate from the public book service; external model processing requires explicit operator configuration.
+
+The current Product Advisor skill performs three roles: retrieve textbook evidence, reconstruct company context, and combine both to support a decision. A Product Manager agent can use these roles to propose a next action while the user owns the decision. This repository currently ships one integrated skill, not three standalone skills or a separate Product Manager agent definition. Only generic conceptual questions go to the book MCP.
+
 ## MCP tools
 
 | Tool | Behavior |
