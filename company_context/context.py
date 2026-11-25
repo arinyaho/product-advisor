@@ -105,6 +105,12 @@ class Corpus:
                 raise ValueError("Provide the author or an explicit null when unknown")
             source_url(source["url"])
             validate_slack_source(source)
+            if "provider_scope" in source:
+                scope = source["provider_scope"]
+                if not isinstance(scope, dict) or scope.get("provider") not in ("notion", "drive") or any(not isinstance(scope.get(key), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", scope[key]) for key in ("connection", "resource_id")):
+                    raise ValueError("Document sources require a validated provider identity")
+                if not isinstance(scope.get("dependencies", []), list) or any(not isinstance(v, str) or not re.fullmatch(r"block:[A-Za-z0-9_-]{1,128}", v) or scope["provider"] != "notion" for v in scope.get("dependencies", [])):
+                    raise ValueError("Invalid document dependency identity")
             if len(source["text"]) > 2_000_000 or any(len(source[k]) > 2048 for k in ("source_id", "url", "title")):
                 raise ValueError("Source exceeds snapshot size limits")
             timestamp(source["collected_at"])

@@ -26,6 +26,9 @@ class Notion:
             time.sleep(max(0, self.previous + .4 - time.monotonic()))
             self.previous = time.monotonic()
             response = self.client.request(method, path, **kwargs)
+            if response.status_code in (500, 502, 503, 504):
+                print(json.dumps({"provider": "notion", "retry_status": response.status_code, "attempt": attempt + 1}), flush=True)
+                response.close(); time.sleep(min(2 ** attempt, 30)); continue
             if response.status_code == 429:
                 remaining = max(1, int(response.headers.get("retry-after", "60")))
                 while remaining:
@@ -33,7 +36,7 @@ class Notion:
                 continue
             response.raise_for_status()
             return response.json()
-        raise RuntimeError("Notion rate-limit retry exhausted")
+        raise RuntimeError("Notion transient retry exhausted")
 
 
 def open_store(path, identity):
@@ -140,6 +143,8 @@ def status(db):
 
 
 def collect(api, db):
+    if dict(db.execute("SELECT key,value FROM metadata")).get("finished_at") and not db.execute("SELECT count(*) FROM tasks WHERE done=0 OR error IS NOT NULL").fetchone()[0]:
+        return status(db)
     while True:
         task = db.execute("SELECT kind,id,cursor,consumed FROM tasks WHERE done=0 AND error IS NULL ORDER BY CASE kind WHEN 'search' THEN 0 WHEN 'query' THEN 1 ELSE 2 END,rowid LIMIT 1").fetchone()
         if not task:

@@ -1,6 +1,6 @@
 # Company context service
 
-TL;DR: Run company source storage and LightRAG inside the company environment. A single-reader Slack pipeline captures accessible public/private channels, excludes DMs, preserves conversations, and publishes only validated graph snapshots. The public book MCP stays separate. Configure the reader, collection start, model budget and private file paths before enabling the hourly units. This is not a multi-user authorization system.
+TL;DR: Run company source storage and LightRAG inside the company environment. A single-reader pipeline excludes Slack DMs and automatically publishes completed Notion/Drive captures through validated, budgeted batches. The public book MCP stays separate. Configure the reader, collection start, model budget and private file paths before enabling the hourly units. This is not a multi-user authorization system.
 
 ## Data boundary
 
@@ -13,13 +13,47 @@ TL;DR: Run company source storage and LightRAG inside the company environment. A
 
 ## Initial Notion capture
 
-- `python -m company_context.collect_notion --token-file <private-file> --database <private-sqlite> --workspace-id <authorized-workspace>` captures pages accessible to the configured integration, without a date cutoff. Integration access is not proof of every human reader's access. Do not publish this capture through the single-reader MCP until an explicit reader/permission policy and export validation exist.
+- `python -m company_context.collect_notion --token-file <private-file> --database <private-sqlite> --workspace-id <authorized-workspace>` captures pages accessible to the configured integration, without a date cutoff. Integration access is not proof of a human reader's Notion ACL. The operator must explicitly authorize that integration's shared pages for the single MCP reader before configuring automatic publication.
 - The pinned API version is `2025-09-03`. The collector searches accessible pages/data sources, queries database rows, recursively reads blocks and synced blocks, and paginates supported page properties. Objects retain their source IDs, content hashes and capture times; parent task membership preserves traversal order.
 - API pagination and consumed item positions, including omitted items, are checkpointed together in SQLite. Re-running the command resumes pending tasks, without replaying completed tasks. List response metadata retains rollup aggregates and unsupported calculation reasons. Formula properties use their dedicated endpoint. An API-reported incomplete data source query remains a failed task instead of claiming full coverage; narrower query partitioning requires operator follow-up.
 - Capture schema 2 refuses to resume older archives, whose property positions and traversal coverage cannot be reconstructed reliably. Retain the old database and start a separate schema-2 capture. Failed tasks remain visible and require operator inspection; this is an initial capture, not periodic synchronization or deletion propagation.
 - Comments denied by the API, unsupported blocks and credential-pattern omissions are explicitly recorded. An omitted parent payload does not suppress traversal of its structural child IDs. Temporary hosted file URLs are removed using expiry metadata and recognized signing parameters. File attachments are not downloaded. Credential-pattern matching is a heuristic, not a guarantee that arbitrary secret formats are absent.
 - API search is not an atomic or guaranteed exhaustive workspace export. Page metadata counts do not mean page bodies are complete. `finished_at` means the task queue was attempted; check failed tasks and omissions before accepting coverage.
-- The raw collector makes no model calls and cannot publish an index. Keep SQLite files, tokens and logs on the company host, outside Git. Adapt `systemd/company-notion-capture.service` with the authorized workspace ID for a persistent host job; failed tasks do not automatically retry.
+- The raw collector makes no model calls. Bounded retries cover HTTP 429 and transient 5xx reads; final failed tasks still require operator inspection. Completed captures retain their original completion timestamp across restarts. Adapt `systemd/company-notion-capture.service` with the authorized workspace ID; its completion hook requests the separate validated publisher described below.
+
+## Drive capture and automatic document publication
+
+- `collect_drive` verifies the Google account and stable permission ID through Drive `about`, then enumerates the user's corpus and accessible shared drives separately. A failed/incomplete listing cannot become a complete capture. File IDs deduplicate shared entries; shortcuts queue their targets, whose access is checked independently.
+- Native Docs use text runs across tabs; native Slides include slide/table/notes text; native Sheets export all worksheets. PDF text layers, DOCX body paragraphs/tables, XLSX values/formula expressions, PPTX text/tables/notes and UTF-8 text are supported. Images/OCR, HWP, unsupported MIME types, oversized/empty files and parser failures are explicit omissions. No source files or sharing settings are modified.
+- Downloads are bounded to 50 MB. Document extraction runs in a subprocess with a 70-second wall limit, 60-second CPU limit and 2 GB address-space limit. Office expansion is bounded to 200 MB and extracted text to two million characters. File version and modification time are checked before and after reading. Revision races/API failures remain failed tasks, not accepted partial sources.
+- The document publisher refuses captures with pending or failed tasks. Notion exports page properties, ordered block text and synced-block dependencies; comments remain in the raw archive but are not indexed. Drive exports only successfully captured text. Provider identities are pinned in each record. Static aliases are replaced only for the same resource; unrelated sources survive.
+- Completed providers begin indexing independently. Defaults allow 500 new sources and two million new characters per batch, newest edits first. Providers alternate when both have pending sources. MCP coverage distinguishes available sources, indexed sources and `index_complete`; metadata discovery and raw capture are not index completion.
+- Publishers serialize through `sync.lock`, share `sync-model-receipts.jsonl`, and call the same native validation and authenticated MCP acceptance path. Slack refreshes preserve published document records. Completion hooks request publication; a 15-minute timer catches a busy publisher or continues the next batch. It does not replay failed paid builds. A long active Slack sync can delay the next document batch.
+- Private `document-sources.json` becomes the common ingestion budget authority once configured. Both publishers read its `budget_usd`. A budget/provider/build failure leaves the last validated release in place unless known withdrawals require blocking it. The budget does not guarantee that every captured source will fit.
+- `company-document-access.timer` refreshes provider permissions hourly, including building candidates. It checks Notion pages/original synced blocks and Drive identity, file visibility and download capability. Missing, mismatched or older-than-two-hour inventories block model dispatch and evidence reads. Confirmed revocations persist even if a later provider refresh fails. This is bounded-staleness polling, not a provider call on each query. Revocation/source changes can require operator repair or a new capture; document content synchronization is outside this initial-capture pipeline.
+- Releases, archives, credentials, receipts and logs stay on the company host. Release retention remains an operator responsibility; batched immutable releases consume additional disk space.
+
+Create private `document-sources.json` with an explicitly approved scope and budget:
+
+```json
+{
+  "principal": "slack:WORKSPACE:READER",
+  "legacy_principal": "reader@example.com",
+  "slack_token_file": "/private/slack-token",
+  "model_config": "/private/config.json",
+  "mcp_token_file": "/private/mcp-token",
+  "budget_usd": 200,
+  "max_model_calls": 1000000,
+  "batch_sources": 500,
+  "batch_characters": 2000000,
+  "providers": {
+    "notion": {"database": "/private/notion-initial-v2.sqlite", "token_file": "/private/notion-token", "workspace_id": "WORKSPACE_UUID", "connection_id": "BOT_UUID"},
+    "drive": {"database": "/private/drive-initial.sqlite", "credentials_file": "/private/drive-credentials.json", "email": "reader@example.com", "permission_id": "GOOGLE_PERMISSION_ID"}
+  }
+}
+```
+
+Install/adapt the capture services, `company-document-sync.service`/`.timer` and `company-document-access.service`/`.timer`. After a manual `python -m company_context.document_sync sync --state-dir /private` and `access` check, enable the timers. The server keeps the existing `--access-state` and `--sync-state` paths. Authorizing the Notion integration for the reader is an explicit operator decision, not inferred from an email match.
 
 ## Source snapshot
 
@@ -84,7 +118,7 @@ uv pip install --python .venv/bin/python pytest
 .venv/bin/python -m pytest company_context -q
 ```
 
-Synthetic tests exercise native LightRAG stores, exact source membership, changes/removals in an isolated candidate, the actual HTTP MCP protocol, ACL expiry/revocation, token rotation, conversation boundaries and capture-to-publication orchestration. They mock model responses and do not establish real semantic quality. Company-host model calls, four-opportunity retrieval, advisor decisions and both clients' actual connections require separate recorded acceptance. Automatic synchronization covers Slack message text only; Docs/Jira/Notion remain static selected supplements. Files and linked documents are not downloaded by this collector.
+Synthetic tests exercise native LightRAG stores, exact source membership, changes/removals in an isolated candidate, the actual HTTP MCP protocol, ACL expiry/revocation, token rotation, conversation boundaries and capture-to-publication orchestration. They mock model responses and do not establish real semantic quality. Company-host model calls, four-opportunity retrieval, advisor decisions and both clients' actual connections require separate recorded acceptance. Slack content synchronization is periodic; Notion/Drive initial captures publish automatically and receive periodic permission checks. Jira remains a static selected supplement. The Slack collector does not download its attachments or linked files. Document tests cover exact membership, independent/fair batch publication, native mix retrieval, provider ACLs and actual Office readers; model responses remain synthetic.
 
 ## Channel capture and hourly synchronization
 
@@ -93,8 +127,8 @@ Synthetic tests exercise native LightRAG stores, exact source membership, change
 3. Subsequent cycles re-read parent history and compare each thread's reply count/latest-reply signature. Unchanged replies can be reused only when the prior cutoff covered the latest reply, and for at most 24 hours, after which they are fully re-read to detect edits that Slack does not expose in a change cursor. Deleted roots/replies disappear from the next complete capture. Revoked channels are separately blocked through the hourly access inventory. New captures do not copy unobserved old rows into the exported snapshot.
 4. Changed source content produces a new document identity. Append-only candidates reuse a validated index only when every previous document remains identical and the index configuration matches. Any changed or removed source requires a fresh graph without copying the old extraction cache: native sequential deletion can otherwise send another withdrawn source into a reconstruction request. This costs more than incremental deletion and remains subject to the cumulative budget. Unchanged source collection provenance stays stable. First migration from the legacy pilot also uses a fresh graph. Failed extraction, budget checks or acceptance leave the candidate unpublished; no automatic paid replay occurs.
 5. A completed bootstrap archive stays immutable. A resumable candidate copy revalidates accessible channels and retires revoked channels before its first publication. Slack dependency URLs must use canonical channel archive links; unsupported Slack URL forms fail closed.
-5. `sync` validates the candidate through an authenticated in-process MCP transport before switching `current`, then restarts the loopback service and checks the deployed snapshot and an exact source. If deployed acceptance fails, it blocks the candidate and stops the service. Confirmed withdrawals are recorded before candidate validation or model configuration, including empty or invalid replacement attempts. Non-Slack supplements must explicitly name the same authorized reader; their Slack-derived dependencies are checked before model dispatch. The service must use `--directory /private/current --access-state /private/access.json --sync-state /private/sync.json`. A failed restart/acceptance requires operator repair; there is no automatic rollback to withdrawn evidence.
-6. The included user-systemd timers trigger hourly. A long-running job is not overlapped; hourly triggering does not promise one-hour end-to-end freshness. The ACL job runs independently, including during collection/indexing. Both callers serialize their inventory scans under one lock and stamp the scan start time. Every build-time model dispatch rechecks current channel access; already dispatched provider requests cannot be recalled. The single append-only `sync-model-receipts.jsonl` spans all sync generations: the configured budget is cumulative, not reset hourly. Review retained failures before authorizing another paid attempt.
+6. `sync` validates the candidate through an authenticated in-process MCP transport before switching `current`, then restarts the loopback service and checks the deployed snapshot and an exact source. If deployed acceptance fails, it blocks the candidate and stops the service. Confirmed withdrawals are recorded before candidate validation or model configuration, including empty or invalid replacement attempts. Non-Slack supplements must explicitly name the same authorized reader; their Slack-derived dependencies are checked before model dispatch. The service must use `--directory /private/current --access-state /private/access.json --sync-state /private/sync.json`. A failed restart/acceptance requires operator repair; there is no automatic rollback to withdrawn evidence.
+7. The included user-systemd timers trigger hourly. A long-running job is not overlapped; hourly triggering does not promise one-hour end-to-end freshness. The ACL job runs independently, including during collection/indexing. Both callers serialize their inventory scans under one lock and stamp the scan start time. Every build-time model dispatch rechecks current channel access; already dispatched provider requests cannot be recalled. The single append-only `sync-model-receipts.jsonl` spans all sync generations: the configured budget is cumulative, not reset hourly. Review retained failures before authorizing another paid attempt.
 
 Initial capture and standalone export:
 
