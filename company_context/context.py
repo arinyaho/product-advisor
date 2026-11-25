@@ -9,6 +9,7 @@ import ipaddress
 import itertools
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import shutil
@@ -49,8 +50,11 @@ def source_url(value):
 def slack_channel_id(url):
     parsed = urlsplit(url)
     parts = parsed.path.split("/")
-    if (parsed.hostname or "").endswith(".slack.com") and len(parts) > 2 and parts[1] == "archives":
-        return parts[2]
+    host = (parsed.hostname or "").rstrip(".")
+    if host == "slack.com" or host.endswith(".slack.com"):
+        if len(parts) > 2 and parts[1] == "archives" and re.fullmatch(r"[CGD][A-Z0-9]+", parts[2]):
+            return parts[2]
+        raise ValueError("Slack provenance requires a canonical channel archive link")
     return None
 
 
@@ -370,25 +374,20 @@ async def build(snapshot, directory, models, previous=None):
     old = None
     if previous:
         previous = Path(previous)
-        old = Corpus(json.loads((previous / "snapshot.json").read_text()))
+        prior = Corpus(json.loads((previous / "snapshot.json").read_text()))
         ready = json.loads((previous / "ready.json").read_text())
-        if old.principal != corpus.principal or ready["snapshot"] != old.version or ready["config"] != index_config(models, corpus):
-            raise ValueError("Incremental builds require the same reader and index configuration")
-        shutil.copytree(previous / "index", directory / "index")
-        (directory / "index" / ready.get("workspace", "company-context")).rename(directory / "index" / workspace)
+        if prior.principal != corpus.principal or ready["snapshot"] != prior.version:
+            raise ValueError("Incremental builds require the same reader and a matching snapshot")
+        # Native deletion can re-summarize another withdrawn document before its deletion.
+        if ready["config"] == index_config(models, corpus) and all(corpus.document_ids.get(key) == doc for key, doc in prior.document_ids.items()):
+            old = prior
+            shutil.copytree(previous / "index", directory / "index")
+            (directory / "index" / ready.get("workspace", "company-context")).rename(directory / "index" / workspace)
     rag = engine(directory / "index", models, building=True, workspace=workspace)
     await rag.initialize_storages()
     try:
         if old:
             await verify_chunks(old, rag)
-            for source_id, doc_id in old.document_ids.items():
-                if corpus.document_ids.get(source_id) != doc_id:
-                    result = await rag.adelete_by_doc_id(doc_id, delete_llm_cache=True)
-                    if result.status != "success":
-                        raise ValueError("Document removal failed; this candidate cannot be published")
-            removed = set(old.native_chunks) - set(corpus.native_chunks)
-            if any(row is not None for row in await rag.text_chunks.get_by_ids(list(removed))):
-                raise ValueError("Removed source chunks remain in the candidate index")
         for position, (source_id, source) in enumerate(corpus.records.items(), 1):
             if old and old.document_ids.get(source_id) == corpus.document_ids[source_id]:
                 continue

@@ -30,7 +30,7 @@ def write_json(path, value):
 
 def refresh_access(api, path):
     path = Path(path)
-    with path.with_suffix(".lock").open("a") as lock:
+    with path.with_name(path.name + ".refresh.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         checked_at = datetime.now(timezone.utc).isoformat()
         auth = api.get("auth.test")
@@ -146,7 +146,7 @@ async def synchronize(args):
         previous = current.resolve() if current.is_symlink() else None
         previous_snapshot = json.loads((previous / "snapshot.json").read_text()) if previous else None
         bootstrap = args.bootstrap_database
-        if not state.get("last_database") and bootstrap:
+        if not state.get("last_database") and not state.get("pending_database") and bootstrap:
             state.update(phase="initial_collection", initial_database=str(bootstrap))
             write_json(state_path, state)
             with sqlite3.connect(f"file:{bootstrap}?mode=ro", uri=True) as db:
@@ -164,7 +164,18 @@ async def synchronize(args):
                         raise ValueError("Initial capture is incomplete; no candidate was built")
                 finally:
                     db.close()
-            database = bootstrap
+            # Preserve the completed archive while revalidating its current channel scope.
+            database = root / ("capture-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f") + ".sqlite")
+            with sqlite3.connect(f"file:{bootstrap}?mode=ro", uri=True) as source, sqlite3.connect(database) as copy:
+                source.backup(copy)
+            state.update(phase="collecting", pending_database=str(database), pending_until=float(meta["until"]))
+            write_json(state_path, state)
+            db = open_store(database, float(meta["since"]), float(meta["until"]))
+            try:
+                if not collect(api, db, float(meta["since"]), float(meta["until"])):
+                    raise ValueError("Initial capture revalidation is incomplete; no candidate was built")
+            finally:
+                db.close()
         else:
             pending = state.get("pending_database")
             database = Path(pending) if pending else root / ("capture-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f") + ".sqlite")
@@ -184,9 +195,11 @@ async def synchronize(args):
         access = refresh_access(api, root / "access.json")
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as db:
             snapshot = export_snapshot(db, previous_snapshot)
-        if snapshot["principal"] != access["principal"] or not set(snapshot["collection"]["channel_ids"]) <= set(access["channel_ids"]):
+        if snapshot["principal"] != access["principal"]:
             raise ValueError("Reader or channel access changed during capture")
         withdraw_changed(previous_snapshot, snapshot, state, state_path, slack_only=True)
+        if not set(snapshot["collection"]["channel_ids"]) <= set(access["channel_ids"]):
+            raise ValueError("Reader or channel access changed during capture")
         if args.supplement:
             supplement = json.loads(args.supplement.read_text())
             if supplement.get("principal") != snapshot["principal"]:

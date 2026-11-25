@@ -4,6 +4,8 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import json
+import subprocess
+import sys
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -282,3 +284,77 @@ def test_revocation_during_search_does_not_return_retrieved_sources(tmp_path):
         response = parse_rpc(client.post("/mcp", headers=headers, json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_company_context", "arguments": {"query": "Pilot decision", "mode": "naive"}}}))
     assert response["result"]["isError"] is True
     assert record()["text"] not in json.dumps(response)
+
+
+def test_access_command_does_not_lock_its_inventory_twice():
+    program = '''
+import json,signal,sys,tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from company_context import sync
+class API:
+    client=SimpleNamespace(close=lambda:None)
+    def get(self,method,**params):
+        if method=='auth.test':return {'team_id':'T1','user_id':'U1'}
+        return {'channels':[]}
+def expired(*args):raise TimeoutError('access watchdog self-deadlocked')
+with tempfile.TemporaryDirectory() as work:
+    sync.Slack=lambda _:API()
+    sys.argv=['sync','access','--state-dir',work,'--token-file','synthetic']
+    signal.signal(signal.SIGALRM,expired);signal.alarm(2)
+    sync.main();signal.alarm(0)
+    assert json.loads((Path(work)/'access.json').read_text())['channel_ids']==[]
+    print('access command completed')
+'''
+    result = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert "access command completed" in result.stdout
+
+
+def test_replacement_never_dispatches_reconstruction_from_withdrawn_graph(tmp_path):
+    async def run():
+        original = tmp_path / "original"
+        await build({"principal": "reader", "records": [record("a"), record("b")]}, original, SyntheticModels())
+        models = SyntheticModels()
+        ready = await build({"principal": "reader", "records": []}, tmp_path / "empty", models, original)
+        assert ready["source_count"] == 0
+        assert models.calls == 0
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("url", ["https://app.slack.com/client/T1/G002", "https://workspace.slack.com./client/T1/D002"])
+def test_unsupported_slack_dependency_is_not_treated_as_a_public_web_link(url):
+    row = record(source_type="docs", url="https://docs.example.com/page", record_kind="summary", derived_from=[url])
+    with pytest.raises(ValueError, match="Slack"):
+        Corpus({"principal": "reader", "records": [row]})
+
+
+def test_withdrawal_precedes_candidate_acl_rejection(tmp_path, monkeypatch):
+    old = {"principal": "slack:T1:U1", "records": [record()]}
+    args = setup_sync(tmp_path, monkeypatch, old=old)
+    monkeypatch.setattr(sync, "export_snapshot", lambda *a: {"principal": "slack:T1:U1", "records": [], "collection": {"channel_ids": ["C001", "C002"], "completed_at": "2026-11-26T00:00:00+00:00"}})
+    with pytest.raises(ValueError, match="access changed"):
+        asyncio.run(sync.synchronize(args))
+    assert digest(old) in json.loads((tmp_path / "sync.json").read_text())["blocked_snapshots"]
+
+
+def test_completed_bootstrap_can_retire_revoked_channels_without_mutating_archive(tmp_path, monkeypatch):
+    args = setup_sync(tmp_path, monkeypatch, messages=[{"ts": "12", "text": "Revoked source"}])
+    class Gone(SyncAPI):
+        def get(self, method, **params):
+            return {"channels": []} if method == "conversations.list" else super().get(method, **params)
+    monkeypatch.setattr(sync, "Slack", lambda _: Gone())
+    models = SyntheticModels(); models.cost = 0
+    monkeypatch.setattr(sync, "Models", lambda *a, **kw: models)
+    seen = []
+    async def intercepted(snapshot, *args):
+        seen.extend(snapshot["records"])
+        assert snapshot["collection"]["channel_ids"] == []
+        raise RuntimeError("fresh authorized build reached")
+    monkeypatch.setattr(sync, "build", intercepted)
+    with pytest.raises(RuntimeError, match="fresh authorized build reached"):
+        asyncio.run(sync.synchronize(args))
+    assert seen == []
+    import sqlite3
+    with sqlite3.connect(args.bootstrap_database) as db:
+        assert set(db.execute("SELECT ts FROM messages")) == {("12",)}
