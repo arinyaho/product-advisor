@@ -125,6 +125,9 @@ def test_complete_capture_builds_then_publishes_and_accepts_exact_mcp_source(tmp
     asyncio.run(sync.synchronize(args))
     state = json.loads((tmp_path / "sync.json").read_text())
     assert state["phase"] == "published"
+    report = sync.progress(tmp_path / "sync.json")
+    assert report["capture"] == {"channels": 1, "complete_channels": 1, "failed_channels": 0, "messages": 1}
+    assert str(tmp_path) not in json.dumps(report)
     assert (tmp_path / "current").is_symlink()
     published = json.loads((tmp_path / "current" / "snapshot.json").read_text())
     assert {r["source_id"] for r in published["records"]} == {"slack:T1:C001:timeline:12"}

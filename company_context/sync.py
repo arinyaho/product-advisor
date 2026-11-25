@@ -70,6 +70,26 @@ def changed_or_removed(previous, current):
     return {identity for identity, row in old.items() if new.get(identity) != row}
 
 
+def progress(state_path):
+    if not state_path or not Path(state_path).exists():
+        return None
+    try:
+        state = json.loads(Path(state_path).read_text())
+        result = {key: state[key] for key in ("phase", "last_collected_at", "sources", "chunks", "model_calls", "charged_or_estimated_usd") if key in state}
+        database = state.get("pending_database") or state.get("last_database") or state.get("initial_database")
+        if database:
+            with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as db:
+                total, complete, failed = db.execute("SELECT count(*),coalesce(sum(done),0),coalesce(sum(error IS NOT NULL),0) FROM channels").fetchone()
+                result["capture"] = {"channels": total, "complete_channels": complete, "failed_channels": failed, "messages": db.execute("SELECT count(*) FROM messages").fetchone()[0]}
+        if state.get("phase") == "building":
+            path = Path(state["candidate"]) / "progress.json"
+            if path.exists():
+                result["build"] = {k: v for k, v in json.loads(path.read_text()).items() if k in ("completed_sources", "total_sources", "model_calls")}
+        return result
+    except (OSError, ValueError, KeyError, sqlite3.Error):
+        return {"phase": "progress_unavailable"}
+
+
 def publish(directory, current):
     directory, current = Path(directory).resolve(), Path(current)
     if not (directory / "ready.json").exists():
@@ -98,6 +118,8 @@ async def synchronize(args):
         previous_snapshot = json.loads((previous / "snapshot.json").read_text()) if previous else None
         bootstrap = args.bootstrap_database
         if not state.get("last_database") and bootstrap:
+            state.update(phase="initial_collection", initial_database=str(bootstrap))
+            write_json(state_path, state)
             with sqlite3.connect(f"file:{bootstrap}?mode=ro", uri=True) as db:
                 meta = dict(db.execute("SELECT key,value FROM metadata"))
             with bootstrap.with_suffix(".lock").open("a") as initial_lock:
