@@ -79,7 +79,8 @@ def test_access_refresh_cannot_change_reader(tmp_path):
     assert path.stat().st_mode & 0o777 == 0o600
 
 
-def test_complete_capture_builds_then_publishes_and_accepts_exact_mcp_source(tmp_path, monkeypatch):
+@pytest.mark.parametrize("initial_complete", [True, False])
+def test_complete_capture_builds_then_publishes_and_accepts_exact_mcp_source(tmp_path, monkeypatch, initial_complete):
     from company_context import sync
     from company_context.collect_slack import open_store, save_messages
     from company_context.context import Corpus
@@ -91,12 +92,19 @@ def test_complete_capture_builds_then_publishes_and_accepts_exact_mcp_source(tmp
         db.executemany("INSERT INTO metadata VALUES (?,?)", [("reader", "U1"), ("team_id", "T1"), ("workspace_url", "https://workspace.slack.com/"), ("completed_at", "2026-11-26T00:00:00+00:00")])
         db.execute("INSERT INTO channels(id,info,done) VALUES (?,?,1)", ("C001", json.dumps(channel())))
         save_messages(db, "C001", [{"ts": "12", "text": "The pilot was evaluated.", "user": "U1"}], 10, 20)
+        if not initial_complete:
+            db.execute("DELETE FROM metadata WHERE key='completed_at'")
+            db.execute("UPDATE channels SET done=0")
     db.close()
     class API:
         client = SimpleNamespace(close=lambda: None)
         def get(self, method, **params):
             if method == "auth.test":
                 return {"team_id": "T1", "user_id": "U1", "url": "https://workspace.slack.com/"}
+            if method == "conversations.info":
+                return {"channel": channel()}
+            if method == "conversations.history":
+                return {"messages": [{"ts": "12", "text": "The pilot was evaluated.", "user": "U1"}]}
             return {"channels": [channel()]}
     monkeypatch.setattr(sync, "Slack", lambda _: API())
     models = SyntheticModels(); models.cost = 0

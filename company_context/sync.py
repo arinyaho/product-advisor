@@ -100,12 +100,19 @@ async def synchronize(args):
         if not state.get("last_database") and bootstrap:
             with sqlite3.connect(f"file:{bootstrap}?mode=ro", uri=True) as db:
                 meta = dict(db.execute("SELECT key,value FROM metadata"))
-                if not meta.get("completed_at"):
+            with bootstrap.with_suffix(".lock").open("a") as initial_lock:
+                try:
+                    fcntl.flock(initial_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
                     print(json.dumps({"phase": "waiting_for_initial_capture"}))
                     return
-            # The initial capture can predate the reply-audit columns.
-            migrated = open_store(bootstrap, float(meta["since"]), float(meta["until"]))
-            migrated.close()
+                # Resume an interrupted bootstrap; never compete with its original collector.
+                db = open_store(bootstrap, float(meta["since"]), float(meta["until"]))
+                try:
+                    if not meta.get("completed_at") and not collect(api, db, float(meta["since"]), float(meta["until"])):
+                        raise ValueError("Initial capture is incomplete; no candidate was built")
+                finally:
+                    db.close()
             database = bootstrap
         else:
             pending = state.get("pending_database")
