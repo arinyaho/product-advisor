@@ -131,3 +131,32 @@ def test_legacy_capture_is_preserved_and_cannot_silently_resume(tmp_path):
     with pytest.raises(ValueError, match="start a new database"):
         open_store(path, {"workspace_id": "W"})
     assert path.read_bytes() == before
+
+
+def test_capped_query_reads_remaining_pages_before_reporting_incomplete(tmp_path):
+    db = open_store(tmp_path / "capture.sqlite", {"workspace_id": "W"})
+    with db: enqueue(db, "query", "capped")
+    calls = []
+    class CappedAPI(API):
+        def request(self, method, path, **kwargs):
+            if path == "search": return {"object": "list", "results": []}
+            if path == "data_sources/capped/query":
+                cursor = kwargs["json"].get("start_cursor", ""); calls.append(cursor)
+                return {"object": "list", "results": [{"object": "page", "id": "second" if cursor else "first", "properties": {}}], "has_more": not cursor, "next_cursor": None if cursor else "next", **({"request_status": {"type": "incomplete"}} if not cursor else {})}
+            return super().request(method, path, **kwargs)
+    collect(CappedAPI(), db)
+    assert calls == ["", "next"]
+    assert set(db.execute("SELECT id FROM objects WHERE kind='page'")) == {("first",), ("second",)}
+    assert db.execute("SELECT cursor,consumed,done,error FROM tasks WHERE kind='query'").fetchone() == ("", 2, 0, "incomplete_query")
+    db.close()
+
+
+def test_interrupted_legacy_initialization_cannot_be_labeled_schema_two(tmp_path):
+    import sqlite3
+    path = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(path) as db:
+        db.executescript("CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE tasks(kind TEXT,id TEXT,cursor TEXT NOT NULL DEFAULT '',done INTEGER NOT NULL DEFAULT 0,error TEXT,PRIMARY KEY(kind,id));")
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="start a new database"):
+        open_store(path, {"workspace_id": "W"})
+    assert path.read_bytes() == before

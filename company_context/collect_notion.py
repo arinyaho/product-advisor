@@ -41,6 +41,10 @@ def open_store(path, identity):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     db = sqlite3.connect(path)
     path.chmod(0o600)
+    columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)")}
+    if columns and "consumed" not in columns:
+        db.close()
+        raise ValueError("Capture schema changed; retain the old archive and start a new database")
     db.executescript("""
         CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS tasks (kind TEXT, id TEXT, cursor TEXT NOT NULL DEFAULT '', consumed INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, error TEXT, PRIMARY KEY(kind,id));
@@ -161,7 +165,8 @@ def collect(api, db):
                 incomplete = kind == "query" and response.get("request_status", {}).get("type") == "incomplete"
                 if incomplete:
                     db.execute("INSERT OR IGNORE INTO omissions VALUES (?,?,?)", (kind, identity, "incomplete_query"))
-                db.execute("UPDATE tasks SET cursor=?,consumed=?,done=?,error=? WHERE kind=? AND id=?", (following, offset + len(items), int(not following and not incomplete), "incomplete_query" if incomplete else None, kind, identity))
+                truncated = db.execute("SELECT 1 FROM omissions WHERE kind=? AND id=? AND reason='incomplete_query'", (kind, identity)).fetchone() is not None
+                db.execute("UPDATE tasks SET cursor=?,consumed=?,done=?,error=? WHERE kind=? AND id=?", (following, offset + len(items), int(not following and not truncated), "incomplete_query" if truncated and not following else None, kind, identity))
         except (httpx.HTTPError, ValueError, RuntimeError) as error:
             code = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else type(error).__name__
             with db:
