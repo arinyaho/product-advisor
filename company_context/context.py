@@ -370,7 +370,7 @@ class Models:
 
     async def extract(self, prompt, system_prompt=None, history_messages=None, **kwargs):
         messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + (history_messages or []) + [{"role": "user", "content": prompt}]
-        return await self.request("chat", "/chat/completions", {"model": self.config["chat_model"], "messages": messages, "temperature": 0, "max_tokens": 8192})
+        return await self.request("chat", "/chat/completions", {"model": self.config["chat_model"], "messages": messages, "max_tokens": 8192})
 
     async def embed(self, texts):
         return await self.request("embedding", "/embeddings", {"model": self.config["embedding_model"], "input": texts})

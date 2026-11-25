@@ -183,11 +183,12 @@ def test_legacy_unknown_withdrawal_is_not_replaced_by_a_new_partial_set(tmp_path
     assert calls == []
 
 
-def test_deleted_managed_resource_cannot_return_from_static_supplement(tmp_path, monkeypatch):
+@pytest.mark.parametrize("link", ["https://drive.google.com/file/d/f1/view", "https://drive.google.com/open?id=f1", "https://drive.google.com/uc?id=f1&export=download"])
+def test_deleted_managed_resource_cannot_return_from_static_supplement(tmp_path, monkeypatch, link):
     from company_context.test_ingestion_review import setup_sync
     root = tmp_path / "documents"; root.mkdir()
     settings, _ = setup_publication(root, monkeypatch); settings["providers"] = {"drive": {}}
-    managed = doc("drive", "f1"); retained = record("retained")
+    managed = doc("drive", "f1"); managed["url"] = link; retained = record("retained")
     previous = root / "old"; previous.mkdir()
     (previous / "snapshot.json").write_text(json.dumps({"principal": READER, "records": [managed, retained]}))
     (root / "current").symlink_to(previous)
@@ -220,3 +221,15 @@ def test_ingestion_validates_both_model_ceilings_before_any_request():
     value["cost_ceiling"] = {"embedding": {"model": "synthetic", "context_tokens": 32768, "max_price": {"prompt": .02, "completion": 0, "request": 0}, "cache_multiplier": 1}}
     with pytest.raises(ValueError, match="price ceiling"):
         Models(value)
+
+
+def test_strict_chat_only_sends_required_supported_generation_parameters(monkeypatch):
+    value = config(); value["cost_ceiling"] = {"chat": {"model": "synthetic", "context_tokens": 1000000, "max_price": {"prompt": .5, "completion": 2.5, "request": 0}, "cache_multiplier": 2}}
+    observed = []
+    async def post(*a, **kw):
+        observed.append(kw["json"])
+        return httpx.Response(200, request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"), json={"choices": [{"finish_reason": "stop", "message": {"content": "OK"}}], "usage": {"cost": .00001}})
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    assert asyncio.run(Models(value).extract("synthetic")) == "OK"
+    assert set(observed[0]) == {"model", "messages", "max_tokens", "provider"}
+    assert observed[0]["provider"]["require_parameters"] is True

@@ -119,11 +119,11 @@ def export_capture(provider, settings, principal):
 def resource_identity(row, provider):
     scope = row.get("provider_scope", {})
     if scope.get("provider") == provider: return scope["resource_id"].replace("-", "") if provider == "notion" else scope["resource_id"]
-    from urllib.parse import urlsplit
+    from urllib.parse import parse_qs, urlsplit
     url = urlsplit(row["url"])
     if provider == "drive" and url.hostname in ("drive.google.com", "docs.google.com"):
         match = re.search(r"/d/([A-Za-z0-9_-]+)", url.path)
-        return match[1] if match else None
+        return match[1] if match else next(iter(parse_qs(url.query).get("id", [])), None)
     if provider == "notion" and (url.hostname == "notion.so" or (url.hostname or "").endswith((".notion.so", ".notion.site"))):
         match = re.search(r"([a-fA-F0-9]{32})$", url.path.replace("-", ""))
         return match[1].lower() if match else None
