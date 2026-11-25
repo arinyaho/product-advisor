@@ -31,7 +31,8 @@ def test_budget_refuses_dispatch_and_failed_request_is_not_replayed(monkeypatch,
             assert "private provider response" not in str(error.value)
         assert calls == [True]
         receipts = [json.loads(line) for line in (tmp_path / "receipts.jsonl").read_text().splitlines()]
-        assert [row["status"] for row in receipts] == ["failed_cost_unknown"]
+        assert [row["status"] for row in receipts] == ["pending_cost_unknown", "failed_cost_unknown"]
+        assert [row["call"] for row in receipts] == [1, 1]
         assert "synthetic text" not in json.dumps(receipts)
         restarted = Models(config(), receipts=tmp_path / "receipts.jsonl")
         assert restarted.failed and restarted.calls == 1

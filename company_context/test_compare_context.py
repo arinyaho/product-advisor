@@ -11,7 +11,7 @@ from lightrag.utils import sanitize_text_for_encoding
 from lightrag.utils_pipeline import make_custom_chunk_id
 
 from company_context.compare_context import evidence, generate, pack
-from company_context.context import digest
+from company_context.context import Models, digest
 from company_context.test_context import corpus
 
 
@@ -46,7 +46,7 @@ def test_truncated_answer_is_preserved_before_failure_and_stops_replay(tmp_path,
 
     key = tmp_path / "key"
     key.write_text("synthetic-test-credential")
-    models = SimpleNamespace(failed=False, calls=0, max_calls=2, cost=0., budget=1., receipts=tmp_path / "receipts", config={"chat_url": "http://127.0.0.1", "chat_key_file": str(key), "chat_model": "synthetic"})
+    models = Models({"chat_url": "http://127.0.0.1", "embedding_url": "http://127.0.0.1", "chat_key_file": str(key), "chat_model": "synthetic", "embedding_model": "synthetic", "dimensions": 2}, max_calls=2, budget=1., receipts=tmp_path / "receipts")
     raw = {"choices": [{"finish_reason": "length", "message": {"content": '{"partial"'}}], "usage": {"cost": .01}}
     original_client = httpx.AsyncClient
     monkeypatch.setattr(compare_context.httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=raw)), **kwargs))
@@ -54,7 +54,9 @@ def test_truncated_answer_is_preserved_before_failure_and_stops_replay(tmp_path,
     with pytest.raises(RuntimeError, match="generation failed"):
         asyncio.run(generate(models, {}, output))
     assert json.loads(output.read_text()) == raw
-    assert json.loads(models.receipts.read_text())["status"] == "invalid_response"
+    receipts = [json.loads(line) for line in models.receipts.read_text().splitlines()]
+    assert [r["status"] for r in receipts] == ["pending_cost_unknown", "invalid_response"]
+    assert [r["call"] for r in receipts] == [1, 1]
     assert models.failed and models.calls == 1
     with pytest.raises(RuntimeError, match="previous request failed"):
         asyncio.run(generate(models, {}, output))

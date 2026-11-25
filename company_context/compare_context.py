@@ -14,8 +14,6 @@ import time
 import httpx
 
 from lightrag import QueryParam
-from lightrag.utils import sanitize_text_for_encoding
-from lightrag.utils_pipeline import make_custom_chunk_id
 
 from company_context.context import Models, close_engine, digest, open_index, validate_model_url
 
@@ -42,14 +40,13 @@ def answer_text(response):
 
 
 async def generate(models, request, output):
-    if models.failed or models.calls >= models.max_calls or models.cost + .1 > models.budget:
-        raise RuntimeError("Experiment budget reached or previous request failed")
     config = models.config
     base = validate_model_url(config["chat_url"], config.get("external_provider"))
-    headers = {"Authorization": "Bearer " + Path(config["chat_key_file"]).read_text().strip()}
-    models.calls += 1
-    models.cost += .1
-    receipt = {"call": models.calls, "model": config["chat_model"], "status": "failed_cost_unknown", "charged_or_estimated_usd": .1}
+    headers = {}
+    if config.get("chat_key_file"):
+        headers["Authorization"] = "Bearer " + Path(config["chat_key_file"]).read_text().strip()
+    receipt = models.reserve(config["chat_model"], "/chat/completions", .1)
+    receipt["status"] = "failed_cost_unknown"
     try:
         async with httpx.AsyncClient(timeout=180, trust_env=False, follow_redirects=False) as client:
             response = await client.post(base + "/chat/completions", headers=headers, json=request)
@@ -64,19 +61,19 @@ async def generate(models, request, output):
             answer = answer_text(raw)
             receipt["status"] = "completed"
             return answer
+    except asyncio.CancelledError:
+        models.failed = True
+        receipt["status"] = "cancelled_cost_unknown"
+        raise
     except Exception:
         models.failed = True
         raise RuntimeError("Experiment generation failed; inspect private provider response and receipt") from None
     finally:
-        with models.receipts.open("a") as stream:
-            stream.write(encoded(receipt) + "\n")
+        models.record_receipt(receipt)
 
 
 def evidence(corpus, data):
-    native = {
-        make_custom_chunk_id("doc-" + digest(corpus.records[c["source_id"]]), sanitize_text_for_encoding(corpus.render(c))): c
-        for c in corpus.chunks.values()
-    }
+    native = corpus.native_chunks
     chunks = []
     seen = set()
     for row in data.get("chunks", []):

@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import httpx
@@ -35,7 +36,8 @@ def evaluate(url, token_file, cases_path, output):
         raise ValueError("Freeze source expectations before indexing")
     scores = {mode: {"passed": 0, "total": 0} for mode in ("naive", "mix")}
     headers = {"Authorization": "Bearer " + token_from_file(token_file), "Accept": "application/json, text/event-stream"}
-    with Path(output).open("x") as stream, httpx.Client(base_url=url, headers=headers, timeout=180, trust_env=False, follow_redirects=False) as client:
+    fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as stream, httpx.Client(base_url=url, headers=headers, timeout=180, trust_env=False, follow_redirects=False) as client:
         rpc(client, "initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "company-context-evaluation", "version": "1"}})
         status = rpc(client, "tools/call", {"name": "company_index_status", "arguments": {}})
         stream.write(json.dumps({"fixture_sha256": hashlib.sha256(cases_bytes).hexdigest(), "status": status}) + "\n")

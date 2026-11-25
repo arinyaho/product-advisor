@@ -6,6 +6,7 @@ import hashlib
 import ipaddress
 import itertools
 import json
+import os
 from pathlib import Path
 import socket
 from urllib.parse import urlsplit
@@ -52,6 +53,7 @@ class Corpus:
         self.snapshot = snapshot
         self.principal = snapshot["principal"]
         self.records, self.chunks, self.by_content = {}, {}, {}
+        self.document_ids, self.native_chunks = {}, {}
         for source in rows:
             for key in ("source_id", "source_type", "url", "title", "text"):
                 if not isinstance(source.get(key), str) or not source[key].strip():
@@ -83,13 +85,16 @@ class Corpus:
             if identity in self.records:
                 raise ValueError("Duplicate source identity; choose one current revision per snapshot")
             self.records[identity] = source
+            self.document_ids[identity] = "doc-" + digest(source)
             for start in range(0, len(source["text"]), CHUNK_CHARACTERS):
                 end = min(start + CHUNK_CHARACTERS, len(source["text"]))
                 chunk = {key: value for key, value in source.items() if key != "text"}
                 chunk.update(start=start, end=end, text=source["text"][start:end])
                 chunk["chunk_id"] = "source-" + digest(chunk)[:32]
                 self.chunks[chunk["chunk_id"]] = chunk
-                self.by_content[sanitize_text_for_encoding(self.render(chunk))] = chunk
+                rendered = sanitize_text_for_encoding(self.render(chunk))
+                self.by_content[rendered] = chunk
+                self.native_chunks[make_custom_chunk_id(self.document_ids[identity], rendered)] = chunk
         self.version = digest(snapshot)
 
     @staticmethod
@@ -138,22 +143,42 @@ class Models:
         self.receipts = Path(receipts) if receipts else None
         if self.receipts and self.receipts.exists():
             previous = [json.loads(line) for line in self.receipts.read_text().splitlines()]
-            self.calls = len(previous)
-            self.cost = sum(row["charged_or_estimated_usd"] for row in previous)
-            self.failed = any(row["status"] != "completed" for row in previous)
+            latest = {row["call"]: row for row in previous}
+            self.calls = max(latest, default=0)
+            self.cost = sum(row["charged_or_estimated_usd"] for row in latest.values())
+            self.failed = any(row["status"] != "completed" for row in latest.values())
+
+    def record_receipt(self, receipt):
+        if self.receipts:
+            try:
+                fd = os.open(self.receipts, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+                with os.fdopen(fd, "a") as stream:
+                    stream.write(json.dumps(receipt) + "\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except OSError:
+                self.failed = True
+                raise
+
+    def reserve(self, model, endpoint, amount):
+        if self.failed or self.calls >= self.max_calls or self.cost + amount > self.budget:
+            raise RuntimeError("Model call limit reached or a previous request failed; no automatic replay")
+        self.calls += 1
+        self.cost += amount
+        receipt = {"call": self.calls, "model": model, "endpoint": endpoint, "status": "pending_cost_unknown", "charged_or_estimated_usd": amount}
+        # Persist before dispatch so a terminated process cannot forget an in-flight charge.
+        self.record_receipt(receipt)
+        return receipt
 
     async def request(self, kind, endpoint, payload):
         reserve = .10 if kind == "chat" else .02
-        if self.failed or self.calls >= self.max_calls or self.cost + reserve > self.budget:
-            raise RuntimeError("Model call limit reached or a previous request failed; no automatic replay")
         base = validate_model_url(self.config[kind + "_url"], self.config.get("external_provider"))
         headers = {}
         key_file = self.config.get(kind + "_key_file")
         if key_file:
             headers["Authorization"] = "Bearer " + Path(key_file).read_text().strip()
-        self.calls += 1
-        self.cost += reserve
-        receipt = {"call": self.calls, "model": payload["model"], "endpoint": endpoint, "status": "failed_cost_unknown", "charged_or_estimated_usd": reserve}
+        receipt = self.reserve(payload["model"], endpoint, reserve)
+        receipt["status"] = "failed_cost_unknown"
         failure = "Configured model request failed; inspect the private receipt"
         try:
             async with httpx.AsyncClient(timeout=180, follow_redirects=False, trust_env=False) as client:
@@ -181,13 +206,15 @@ class Models:
                         raise ValueError("Invalid internal embedding dimensions or values")
                 receipt["status"] = "completed"
                 return output
+        except asyncio.CancelledError:
+            self.failed = True
+            receipt["status"] = "cancelled_cost_unknown"
+            raise
         except Exception:
             self.failed = True
             raise RuntimeError(failure) from None
         finally:
-            if self.receipts:
-                with self.receipts.open("a") as stream:
-                    stream.write(json.dumps(receipt) + "\n")
+            self.record_receipt(receipt)
 
     async def extract(self, prompt, system_prompt=None, history_messages=None, **kwargs):
         messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + (history_messages or []) + [{"role": "user", "content": prompt}]
@@ -237,7 +264,7 @@ async def build(snapshot, directory, models):
     try:
         for source_id, source in corpus.records.items():
             chunks = [corpus.render(chunk) for chunk in corpus.chunks.values() if chunk["source_id"] == source_id]
-            await rag.ainsert_custom_chunks(source["text"], chunks, doc_id="doc-" + digest(source))
+            await rag.ainsert_custom_chunks(source["text"], chunks, doc_id=corpus.document_ids[source_id])
         await verify_chunks(corpus, rag)
     finally:
         await close_engine(rag)
@@ -264,15 +291,15 @@ async def open_index(directory, models):
 
 async def verify_chunks(corpus, rag):
     # LightRAG normalizes indexed text; source reads must retain the untouched snapshot.
-    expected = [sanitize_text_for_encoding(corpus.render(chunk)) for chunk in corpus.chunks.values()]
-    identities = [make_custom_chunk_id("doc-" + digest(corpus.records[chunk["source_id"]]), text) for chunk, text in zip(corpus.chunks.values(), expected, strict=True)]
+    expected = list(corpus.by_content)
+    identities = list(corpus.native_chunks)
     stored = await rag.text_chunks.get_by_ids(identities)
     if len(stored) != len(expected) or any(row is None or row["content"] != original for row, original in zip(stored, expected, strict=True)):
         raise ValueError("Indexed source identities or exact source bodies differ")
 
 
 def graph_context(corpus, data, tokenizer, budget=6000):
-    native = {make_custom_chunk_id("doc-" + digest(corpus.records[c["source_id"]]), sanitize_text_for_encoding(corpus.render(c))): c for c in corpus.chunks.values()}
+    native = corpus.native_chunks
     records = []
     total = len(data.get("entities", [])) + len(data.get("relationships", []))
     untraceable = 0
