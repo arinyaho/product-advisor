@@ -66,7 +66,7 @@ class Drive:
                         raise Omitted("native_export_size_limit")
                 except Omitted:
                     raise
-                except (ValueError, KeyError, TypeError):
+                except (ValueError, KeyError, TypeError, AttributeError):
                     pass
                 finally:
                     response.close()

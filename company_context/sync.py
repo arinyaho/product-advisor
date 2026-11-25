@@ -87,9 +87,22 @@ def withdraw_changed(previous, current, state, path, *, slack_only=False):
     changed = changed_or_removed(old, current)
     if changed:
         withdrawn = state.setdefault("withdrawn_sources", {})
-        withdrawn[digest(previous)] = sorted(set(withdrawn.get(digest(previous), [])) | changed)
+        version = digest(previous)
+        if version not in state.get("blocked_snapshots", []) or version in withdrawn:
+            withdrawn[version] = sorted(set(withdrawn.get(version, [])) | changed)
         state["blocked_snapshots"] = sorted(set(state.get("blocked_snapshots", [])) | {digest(previous)})
         write_json(path, state)
+
+
+def managed_resources(state, *snapshots):
+    from company_context.document_sources import resource_identity
+    result = {key: set(values) for key, values in state.get("managed_document_resources", {}).items()}
+    for snapshot in snapshots:
+        for row in (snapshot or {}).get("records", []):
+            if "provider_scope" in row:
+                provider = row["provider_scope"]["provider"]
+                result.setdefault(provider, set()).add(resource_identity(row, provider))
+    return {key: sorted(values) for key, values in result.items()}
 
 
 def require_access(corpus, path):
@@ -199,6 +212,7 @@ async def publish_snapshot(args, snapshot, state, previous, refresh, updates):
                 if attempt == 29:
                     raise
                 await asyncio.sleep(1)
+        state["managed_document_resources"] = managed_resources(state, previous_snapshot, snapshot)
         state.update(phase="published", published_snapshot=corpus.version, last_collected_at=snapshot["collection"]["completed_at"], model_calls=models.calls, charged_or_estimated_usd=models.cost, **updates)
         if "last_database" in updates:
             state.pop("pending_database", None); state.pop("pending_until", None)
@@ -301,9 +315,13 @@ async def synchronize(args):
                 raise ValueError("Supplement cannot reintroduce Slack records")
             snapshot["records"].extend(supplement["records"])
             snapshot["collection"]["supplement_coverage"] = "Static previously selected non-Slack sources; not synchronized by this collector"
+        from company_context.document_sources import merge_records, resource_identity
+        history = managed_resources(state, previous_snapshot)
+        for provider, identities in history.items():
+            retired_aliases = set(identities)
+            snapshot["records"] = [r for r in snapshot["records"] if resource_identity(r, provider) not in retired_aliases]
         managed = [r for r in (previous_snapshot or {}).get("records", []) if "provider_scope" in r]
         if managed:
-            from company_context.document_sources import merge_records
             for provider in sorted({r["provider_scope"]["provider"] for r in managed}):
                 snapshot["records"] = merge_records(snapshot["records"], [r for r in managed if r["provider_scope"]["provider"] == provider], provider)
             snapshot["collection"]["managed_sources"] = previous_snapshot.get("collection", {}).get("managed_sources", {})

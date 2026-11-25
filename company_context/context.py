@@ -202,6 +202,9 @@ class Models:
             raise ValueError("Explicit internal chat and embedding model names are required")
         if type(config.get("dimensions")) is not int or not 1 <= config["dimensions"] <= 16384:
             raise ValueError("Set the actual embedding model dimension")
+        if config.get("require_price_ceiling"):
+            self.price_reservation("chat", {"model": config["chat_model"], "messages": [{"role": "user", "content": ""}], "max_tokens": 8192})
+            self.price_reservation("embedding", {"model": config["embedding_model"], "input": [""]})
         self.calls, self.max_calls, self.failed = 0, max_calls, False
         self.authorize = authorize
         self.access_denied = False

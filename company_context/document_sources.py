@@ -116,21 +116,23 @@ def export_capture(provider, settings, principal):
         return {"principal": principal, "records": rows, "collection": {"provider": provider, "completed_at": meta["finished_at"], **coverage}}
 
 
+def resource_identity(row, provider):
+    scope = row.get("provider_scope", {})
+    if scope.get("provider") == provider: return scope["resource_id"].replace("-", "") if provider == "notion" else scope["resource_id"]
+    from urllib.parse import urlsplit
+    url = urlsplit(row["url"])
+    if provider == "drive" and url.hostname in ("drive.google.com", "docs.google.com"):
+        match = re.search(r"/d/([A-Za-z0-9_-]+)", url.path)
+        return match[1] if match else None
+    if provider == "notion" and (url.hostname == "notion.so" or (url.hostname or "").endswith((".notion.so", ".notion.site"))):
+        match = re.search(r"([a-fA-F0-9]{32})$", url.path.replace("-", ""))
+        return match[1].lower() if match else None
+    return None
+
+
 def merge_records(previous, incoming, provider):
-    def resource(row):
-        scope = row.get("provider_scope", {})
-        if scope.get("provider") == provider: return scope["resource_id"].replace("-", "") if provider == "notion" else scope["resource_id"]
-        from urllib.parse import urlsplit
-        url = urlsplit(row["url"])
-        if provider == "drive" and url.hostname in ("drive.google.com", "docs.google.com"):
-            match = re.search(r"/d/([A-Za-z0-9_-]+)", url.path)
-            return match[1] if match else None
-        if provider == "notion" and (url.hostname == "notion.so" or (url.hostname or "").endswith((".notion.so", ".notion.site"))):
-            match = re.search(r"([a-fA-F0-9]{32})$", url.path.replace("-", ""))
-            return match[1].lower() if match else None
-        return None
-    resources = {resource(r) for r in incoming} - {None}
-    return [r for r in previous if r.get("provider_scope", {}).get("provider") != provider and resource(r) not in resources] + incoming
+    resources = {resource_identity(r, provider) for r in incoming} - {None}
+    return [r for r in previous if r.get("provider_scope", {}).get("provider") != provider and resource_identity(r, provider) not in resources] + incoming
 
 
 def refresh_document_access(root, settings, snapshots):

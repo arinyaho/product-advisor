@@ -163,3 +163,60 @@ def test_over_ceiling_provider_bill_is_retained_and_stops_replay(tmp_path, monke
     assert restored.cost == .5 and restored.failed
     with pytest.raises(RuntimeError): asyncio.run(restored.embed(["synthetic"]))
     assert calls == [True]
+
+
+def test_legacy_unknown_withdrawal_is_not_replaced_by_a_new_partial_set(tmp_path, monkeypatch):
+    previous = tmp_path / "old"; previous.mkdir()
+    old = {"principal": READER, "records": [record("original-withdrawal"), record("new-change")]}
+    incoming = {"principal": READER, "records": [record("original-withdrawal")]}
+    (previous / "snapshot.json").write_text(json.dumps(old))
+    state = {"blocked_snapshots": [sync.digest(old)]}
+    sync.withdraw_changed(old, incoming, state, tmp_path / "sync.json")
+    cache(tmp_path)
+    calls = []
+    def models(*a, **kw): calls.append(True); raise RuntimeError("model construction reached")
+    monkeypatch.setattr(sync, "Models", models)
+    path = tmp_path / "config"; path.write_text("{}")
+    args = SimpleNamespace(state_dir=tmp_path, config=path, max_model_calls=1, budget_usd=200)
+    with pytest.raises(ValueError, match="withdrawn"):
+        asyncio.run(sync.publish_snapshot(args, incoming, state, previous, lambda: None, {}))
+    assert calls == []
+
+
+def test_deleted_managed_resource_cannot_return_from_static_supplement(tmp_path, monkeypatch):
+    from company_context.test_ingestion_review import setup_sync
+    root = tmp_path / "documents"; root.mkdir()
+    settings, _ = setup_publication(root, monkeypatch); settings["providers"] = {"drive": {}}
+    managed = doc("drive", "f1"); retained = record("retained")
+    previous = root / "old"; previous.mkdir()
+    (previous / "snapshot.json").write_text(json.dumps({"principal": READER, "records": [managed, retained]}))
+    (root / "current").symlink_to(previous)
+    monkeypatch.setattr(document_sync, "export_capture", lambda *a: {"principal": READER, "records": [], "collection": {"completed_at": "2026-11-26T00:00:00Z"}})
+    asyncio.run(document_sync.synchronize(root, settings))
+    published = json.loads((root / "current/snapshot.json").read_text())
+    assert {r["source_id"] for r in published["records"]} == {"retained"}
+    following = tmp_path / "slack"; following.mkdir()
+    alias = dict(managed); alias.pop("provider_scope"); alias["source_id"] = "static-f1"
+    args = setup_sync(following, monkeypatch, old=published, supplement={"principal": READER, "records": [alias]})
+    (following / "sync.json").write_text((root / "sync.json").read_text())
+    monkeypatch.setattr(sync, "export_snapshot", lambda *a: {"principal": READER, "records": [retained, record("new")], "collection": {"channel_ids": ["C001"], "completed_at": "2026-11-26T00:00:00Z"}})
+    observed = []
+    async def publish(args, snapshot, *a): observed.extend(snapshot["records"])
+    monkeypatch.setattr(sync, "publish_snapshot", publish)
+    asyncio.run(sync.synchronize(args))
+    assert {r["source_id"] for r in observed} == {"retained", "new"}
+
+
+def test_unstructured_drive_denial_preserves_revocation_signal():
+    response = requests.Response(); response.status_code = 403
+    response._content = b'{"error":"Forbidden"}'; response._content_consumed = True
+    api = Drive.__new__(Drive); api.client = SimpleNamespace(get=lambda *a, **kw: response)
+    with pytest.raises(RuntimeError, match="drive_http_403"):
+        api.request("https://www.googleapis.com/drive/v3/files/synthetic")
+
+
+def test_ingestion_validates_both_model_ceilings_before_any_request():
+    value = config(); value["require_price_ceiling"] = True
+    value["cost_ceiling"] = {"embedding": {"model": "synthetic", "context_tokens": 32768, "max_price": {"prompt": .02, "completion": 0, "request": 0}, "cache_multiplier": 1}}
+    with pytest.raises(ValueError, match="price ceiling"):
+        Models(value)
