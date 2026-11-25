@@ -112,7 +112,10 @@ def test_complete_capture_builds_then_publishes_and_accepts_exact_mcp_source(tmp
     restarted = []
     monkeypatch.setattr(sync.subprocess, "run", lambda command, **kw: restarted.append(command))
     accepted = []
+    from company_context.evaluate import rpc as actual_rpc
     def rpc(client, method, params):
+        if isinstance(client, TestClient):
+            return actual_rpc(client, method, params)
         value = Corpus(json.loads((tmp_path / "current" / "snapshot.json").read_text()))
         accepted.append(params["name"])
         if params["name"] == "company_index_status":

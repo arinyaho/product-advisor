@@ -42,7 +42,7 @@ def create_app(corpus, rag, token_file, access_state=None, sync_state=None):
         """Check snapshot identity, reader scope and coverage before using company evidence."""
         from company_context.sync import progress
         collected = [r["collected_at"] for r in corpus.records.values()]
-        return {"snapshot": corpus.version, "principal": corpus.principal, "source_count": len(corpus.records), "source_types": sorted({r["source_type"] for r in corpus.records.values()}), "collected_from": min(collected, key=timestamp), "collected_through": max(collected, key=timestamp), "coverage": corpus.snapshot.get("collection", "explicit_snapshot_not_all_company_knowledge"), "availability": current_availability(), "ingestion": progress(sync_state), "context_version": 3, "graph_descriptions": True, "applicability": "caller_reviews_original_sources_not_automatically_resolved"}
+        return {"snapshot": corpus.version, "principal": corpus.principal, "source_count": len(corpus.records), "source_types": sorted({r["source_type"] for r in corpus.records.values()}), "collected_from": min(collected, key=timestamp, default=None), "collected_through": max(collected, key=timestamp, default=None), "coverage": corpus.snapshot.get("collection", "explicit_snapshot_not_all_company_knowledge"), "availability": current_availability(), "ingestion": progress(sync_state), "context_version": 3, "graph_descriptions": True, "applicability": "caller_reviews_original_sources_not_automatically_resolved"}
 
     @mcp.tool()
     async def search_company_context(query: str, mode: str = "mix", k: int = 5) -> dict:
@@ -59,7 +59,9 @@ def create_app(corpus, rag, token_file, access_state=None, sync_state=None):
         must remain explicit. Empty matches do not prove the company has no such evidence."""
         try:
             require_available()
-            return await search(corpus, rag, query, mode, k)
+            result = await search(corpus, rag, query, mode, k)
+            require_available()
+            return result
         except ValueError as error:
             raise ToolError(str(error)) from None
 
@@ -129,6 +131,11 @@ def main():
         import uvicorn
         corpus, rag = await open_index(args.directory, models)
         try:
+            from company_context.sync import availability
+            def authorize():
+                if availability(corpus, args.access_state, args.sync_state) != "ready":
+                    raise ValueError("Source access changed")
+            models.authorize = authorize
             app = create_app(corpus, rag, args.token_file, args.access_state, args.sync_state)
             await uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, access_log=False)).serve()
         finally:

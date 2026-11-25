@@ -79,14 +79,15 @@ class Corpus:
         if not isinstance(snapshot.get("principal"), str) or not snapshot["principal"].strip():
             raise ValueError("A snapshot must name its single authorized reader")
         rows = snapshot.get("records")
-        if not isinstance(rows, list) or not 1 <= len(rows) <= 100_000:
-            raise ValueError("Provide 1..100000 authorized source records")
+        if not isinstance(rows, list) or len(rows) > 100_000:
+            raise ValueError("Provide at most 100000 authorized source records")
         if sum(len(r.get("text", "")) for r in rows if isinstance(r.get("text"), str)) > 100_000_000:
             raise ValueError("Snapshot exceeds the 100 million character memory bound")
         self.snapshot = snapshot
         self.principal = snapshot["principal"]
         self.records, self.chunks, self.by_content = {}, {}, {}
         self.document_ids, self.native_chunks = {}, {}
+        self.native_document_chunks = {}
         self.source_chunks = {}
         for source in rows:
             for key in ("source_id", "source_type", "url", "title", "text"):
@@ -121,6 +122,7 @@ class Corpus:
                 raise ValueError("Duplicate source identity; choose one current revision per snapshot")
             self.records[identity] = source
             self.document_ids[identity] = "doc-" + digest(source)
+            self.native_document_chunks[self.document_ids[identity]] = []
             self.source_chunks[identity] = []
             if source.get("chunking") == "slack-messages-v1":
                 from company_context.slack_snapshot import chunk_ranges
@@ -143,7 +145,9 @@ class Corpus:
                 self.source_chunks[identity].append(chunk["chunk_id"])
                 rendered = sanitize_text_for_encoding(self.render(chunk))
                 self.by_content[rendered] = chunk
-                self.native_chunks[make_custom_chunk_id(self.document_ids[identity], rendered)] = chunk
+                native_id = make_custom_chunk_id(self.document_ids[identity], rendered)
+                self.native_chunks[native_id] = chunk
+                self.native_document_chunks[self.document_ids[identity]].append(native_id)
         self.version = digest(snapshot)
 
     @staticmethod
@@ -180,7 +184,7 @@ def validate_model_url(url, external_provider=None):
 
 
 class Models:
-    def __init__(self, config, max_calls=200, receipts=None, budget=5.0):
+    def __init__(self, config, max_calls=200, receipts=None, budget=5.0, authorize=None):
         self.config = config
         for field in ("chat_url", "embedding_url"):
             validate_model_url(config[field], config.get("external_provider"))
@@ -189,6 +193,8 @@ class Models:
         if type(config.get("dimensions")) is not int or not 1 <= config["dimensions"] <= 16384:
             raise ValueError("Set the actual embedding model dimension")
         self.calls, self.max_calls, self.failed = 0, max_calls, False
+        self.authorize = authorize
+        self.access_denied = False
         self.cost, self.budget = 0.0, budget
         self.active_calls = set()
         self.receipts = Path(receipts) if receipts else None
@@ -214,7 +220,17 @@ class Models:
         if stream is None:
             return
         stream.seek(0)
-        latest = {row["call"]: row for row in (json.loads(line) for line in stream)}
+        latest, reserved = {}, {}
+        for row in (json.loads(line) for line in stream):
+            amount = row["charged_or_estimated_usd"]
+            if not isinstance(amount, (int, float)) or not np.isfinite(amount) or amount < 0:
+                raise ValueError("Invalid model receipt cost")
+            if row["status"] != "completed":
+                reserved[row["call"]] = max(reserved.get(row["call"], 0), amount)
+            latest[row["call"]] = row
+        for call, row in latest.items():
+            if row["status"] == "reviewed_failure_cost_reserved":
+                row["charged_or_estimated_usd"] = max(row["charged_or_estimated_usd"], reserved[call])
         self.calls = max(latest, default=0)
         self.cost = sum(row["charged_or_estimated_usd"] for row in latest.values())
         self.failed = self.failed or any(
@@ -250,6 +266,13 @@ class Models:
         return receipt
 
     async def request(self, kind, endpoint, payload):
+        if self.authorize:
+            try:
+                self.authorize()
+                self.access_denied = False
+            except Exception:
+                self.access_denied = True
+                raise RuntimeError("Source access changed; model dispatch stopped") from None
         reserve = .10 if kind == "chat" else .02
         base = validate_model_url(self.config[kind + "_url"], self.config.get("external_provider"))
         headers = {}
@@ -371,7 +394,7 @@ async def build(snapshot, directory, models, previous=None):
                 continue
             chunks = [corpus.render(corpus.chunks[key]) for key in corpus.source_chunks[source_id]]
             await rag.ainsert_custom_chunks(source["text"], chunks, doc_id=corpus.document_ids[source_id])
-            if getattr(models, "failed", False):
+            if getattr(models, "failed", False) or getattr(models, "access_denied", False):
                 raise ValueError("Model processing failed; this candidate cannot be published")
             progress = {"source_id_hash": digest(source_id), "completed_sources": position, "total_sources": len(corpus.records), "model_calls": models.calls}
             (directory / "progress.json").write_text(json.dumps(progress))
@@ -410,6 +433,8 @@ async def verify_chunks(corpus, rag):
         status = await rag.doc_status.get_by_id(identity)
         if not status or status.get("status") != "processed":
             raise ValueError("Source extraction did not complete successfully")
+        if sorted(status.get("chunks_list", [])) != sorted(corpus.native_document_chunks[identity]):
+            raise ValueError("Document chunk membership differs from the authorized snapshot")
     for rows in (await rag.chunk_entity_relation_graph.get_all_nodes(), await rag.chunk_entity_relation_graph.get_all_edges()):
         for row in rows:
             sources = set(row.get("source_id", "").split("<SEP>")) - {""}
@@ -454,6 +479,10 @@ async def search(corpus, rag, query, mode="mix", k=5):
     if mode not in ("mix", "naive") or type(k) is not int or not 1 <= k <= 20 or not 3 <= len(query.strip()) <= 8000:
         raise ValueError("Use mode mix/naive, k 1..20 and a query of 3..8000 characters")
     result = {"snapshot": corpus.version, "retrieval": {"requested_mode": mode, "actual_mode": None, "status": "unavailable", "fallback": False, "profile": "graph-source-context-v3"}, "evidence_status": "unavailable", "results": [], "graph": [], "graph_coverage": {"native_records": 0, "returned": 0, "omitted": 0, "untraceable": 0, "tokens": 0, "token_limit": 6000}}
+    if not corpus.records:
+        result["retrieval"].update(actual_mode=mode, status="ready")
+        result["evidence_status"] = "no_matches"
+        return result
     try:
         raw = await rag.aquery_data(query, param=QueryParam(mode=mode, top_k=40, chunk_top_k=20, ll_keywords=[query] if mode == "mix" else [], hl_keywords=[query] if mode == "mix" else [], enable_rerank=False))
         actual = raw.get("metadata", {}).get("query_mode") or raw.get("metadata", {}).get("mode")

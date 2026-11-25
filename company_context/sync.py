@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 
 from company_context.collect_slack import Slack, collect, inventory, open_store
-from company_context.context import Corpus, Models, build, close_engine, open_index, slack_channel_id
+from company_context.context import Corpus, Models, build, close_engine, open_index, slack_channel_id, digest, index_config
 from company_context.slack_snapshot import export_snapshot
 
 
@@ -29,17 +29,20 @@ def write_json(path, value):
 
 
 def refresh_access(api, path):
-    auth = api.get("auth.test")
-    if auth.get("bot_id") or not auth.get("user_id") or not auth.get("team_id"):
-        raise ValueError("Slack must confirm a named human reader and workspace")
-    identity = f"slack:{auth['team_id']}:{auth['user_id']}"
     path = Path(path)
-    if path.exists() and json.loads(path.read_text())["principal"] != identity:
-        raise ValueError("Refusing to replace another reader's access inventory")
-    channels = inventory(api)
-    result = {"principal": identity, "checked_at": datetime.now(timezone.utc).isoformat(), "channel_ids": sorted(channels)}
-    write_json(path, result)
-    return result
+    with path.with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        checked_at = datetime.now(timezone.utc).isoformat()
+        auth = api.get("auth.test")
+        if auth.get("bot_id") or not auth.get("user_id") or not auth.get("team_id"):
+            raise ValueError("Slack must confirm a named human reader and workspace")
+        identity = f"slack:{auth['team_id']}:{auth['user_id']}"
+        if path.exists() and json.loads(path.read_text())["principal"] != identity:
+            raise ValueError("Refusing to replace another reader's access inventory")
+        channels = inventory(api)
+        result = {"principal": identity, "checked_at": checked_at, "channel_ids": sorted(channels)}
+        write_json(path, result)
+        return result
 
 
 def availability(corpus, access_path=None, sync_path=None):
@@ -68,6 +71,32 @@ def changed_or_removed(previous, current):
     old = {r["source_id"]: r for r in previous["records"]}
     new = {r["source_id"]: r for r in current["records"]}
     return {identity for identity, row in old.items() if new.get(identity) != row}
+
+
+def withdraw_changed(previous, current, state, path, *, slack_only=False):
+    if not previous:
+        return
+    old = previous if not slack_only else {"records": [r for r in previous["records"] if r["source_type"] == "slack"]}
+    if changed_or_removed(old, current):
+        state["blocked_snapshots"] = sorted(set(state.get("blocked_snapshots", [])) | {digest(previous)})
+        write_json(path, state)
+
+
+def require_access(corpus, path):
+    if availability(corpus, path) != "ready":
+        raise ValueError("Source access is not current for the authorized reader")
+
+
+def accept_mcp(client, corpus):
+    from company_context.evaluate import rpc
+    response = rpc(client, "tools/call", {"name": "company_index_status", "arguments": {}})
+    if response.get("snapshot") != corpus.version or response.get("availability") != "ready":
+        raise ValueError("MCP reports a different or unavailable snapshot")
+    if corpus.chunks:
+        handle = next(iter(corpus.chunks))
+        original = rpc(client, "tools/call", {"name": "get_company_source", "arguments": {"chunk_id": handle}})
+        if original != corpus.read(handle):
+            raise ValueError("MCP returned a different source")
 
 
 def progress(state_path):
@@ -157,13 +186,18 @@ async def synchronize(args):
             snapshot = export_snapshot(db, previous_snapshot)
         if snapshot["principal"] != access["principal"] or not set(snapshot["collection"]["channel_ids"]) <= set(access["channel_ids"]):
             raise ValueError("Reader or channel access changed during capture")
+        withdraw_changed(previous_snapshot, snapshot, state, state_path, slack_only=True)
         if args.supplement:
             supplement = json.loads(args.supplement.read_text())
+            if supplement.get("principal") != snapshot["principal"]:
+                raise ValueError("Supplement belongs to a different authorized reader")
             if any(r["source_type"] == "slack" for r in supplement["records"]):
                 raise ValueError("Supplement cannot reintroduce Slack records")
             snapshot["records"].extend(supplement["records"])
             snapshot["collection"]["supplement_coverage"] = "Static previously selected non-Slack sources; not synchronized by this collector"
+        withdraw_changed(previous_snapshot, snapshot, state, state_path)
         corpus = Corpus(snapshot)
+        require_access(corpus, root / "access.json")
         if previous_snapshot and previous_snapshot["records"] == snapshot["records"]:
             state.update(phase="unchanged", last_database=str(database), last_collected_at=snapshot["collection"]["completed_at"])
             state.pop("pending_database", None); state.pop("pending_until", None)
@@ -171,36 +205,38 @@ async def synchronize(args):
             return
         config = json.loads(args.config.read_text())
         # One ledger spans all synchronization builds; a new generation does not reset spending.
-        models = Models(config, args.max_model_calls, root / "sync-model-receipts.jsonl", args.budget_usd)
+        models = Models(config, args.max_model_calls, root / "sync-model-receipts.jsonl", args.budget_usd, authorize=lambda: require_access(corpus, root / "access.json"))
         candidate = root / "releases" / corpus.version[:24]
-        blocked = list(state.get("blocked_snapshots", []))
-        if previous_snapshot and changed_or_removed(previous_snapshot, snapshot):
-            blocked.append(Corpus(previous_snapshot).version)
-        state.update(phase="building", candidate=str(candidate), blocked_snapshots=sorted(set(blocked)), sources=len(corpus.records), chunks=len(corpus.chunks))
+        state.update(phase="building", candidate=str(candidate), sources=len(corpus.records), chunks=len(corpus.chunks))
         write_json(state_path, state)
+        switched = False
         try:
             # Legacy pilot snapshots have a different reader/chunking contract and need a fresh build.
             base = previous if previous_snapshot and previous_snapshot.get("collection", {}).get("kind") == "slack_channel_capture" else None
+            if base and json.loads((base / "ready.json").read_text())["config"] != index_config(models, corpus):
+                base = None
             await build(snapshot, candidate, models, base)
             verified, rag = await open_index(candidate, models)
-            await close_engine(rag)
-            access = refresh_access(api, root / "access.json")
-            if availability(verified, root / "access.json") != "ready":
-                raise ValueError("Channel access changed during indexing")
+            from company_context.server import create_app, token_from_file
+            from starlette.testclient import TestClient
+            headers = {"Authorization": "Bearer " + token_from_file(args.mcp_token_file), "Accept": "application/json, text/event-stream"}
+            try:
+                refresh_access(api, root / "access.json")
+                require_access(verified, root / "access.json")
+                # Exercise the candidate's authenticated MCP before changing the served pointer.
+                with TestClient(create_app(verified, rag, args.mcp_token_file, root / "access.json"), base_url="http://testserver/mcp", headers=headers) as client:
+                    accept_mcp(client, verified)
+            finally:
+                await close_engine(rag)
             publish(candidate, current)
+            switched = True
             subprocess.run(["systemctl", "--user", "restart", args.service], check=True)
             # A running process alone is not acceptance: require an authenticated MCP status call.
-            from company_context.evaluate import rpc
-            from company_context.server import token_from_file
             import httpx
             for attempt in range(30):
                 try:
-                    with httpx.Client(base_url=f"http://127.0.0.1:{args.port}/mcp", headers={"Authorization": "Bearer " + token_from_file(args.mcp_token_file), "Accept": "application/json, text/event-stream"}, timeout=10, trust_env=False) as client:
-                        response = rpc(client, "tools/call", {"name": "company_index_status", "arguments": {}})
-                        handle = next(iter(corpus.chunks))
-                        original = rpc(client, "tools/call", {"name": "get_company_source", "arguments": {"chunk_id": handle}})
-                    if response.get("snapshot") != corpus.version or response.get("availability") != "ready" or original != corpus.read(handle):
-                        raise ValueError("Published MCP reports a different snapshot")
+                    with httpx.Client(base_url=f"http://127.0.0.1:{args.port}/mcp", headers=headers, timeout=10, trust_env=False) as client:
+                        accept_mcp(client, corpus)
                     break
                 except httpx.TransportError:
                     if attempt == 29:
@@ -211,7 +247,10 @@ async def synchronize(args):
             write_json(state_path, state)
         except BaseException:
             state["phase"] = "build_failed"
+            state["blocked_snapshots"] = sorted(set(state.get("blocked_snapshots", [])) | {corpus.version})
             write_json(state_path, state)
+            if switched:
+                subprocess.run(["systemctl", "--user", "stop", args.service], check=False)
             raise
     finally:
         api.client.close()

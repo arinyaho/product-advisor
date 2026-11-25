@@ -121,16 +121,23 @@ def next_cursor(page):
     return cursor
 
 
-def collect_channel(api, db, identity, since, until, previous=None):
+def collect_channel(api, db, identity, since, until, previous=None, *, restarted=False):
     info = api.get("conversations.info", channel=identity)["channel"]
     if info.get("id") != identity or not channel_allowed(info):
         raise ValueError("Conversation is no longer an accessible channel")
+    prior_until = float(dict(previous.execute("SELECT key,value FROM metadata"))["until"]) if previous else None
     while True:
         cursor, done = db.execute("SELECT cursor, history_done FROM channels WHERE id=?", (identity,)).fetchone()
         if done:
             break
         # Scan older parent metadata too: an old thread can contain replies inside the requested year.
-        page = api.get("conversations.history", channel=identity, latest=str(until), inclusive="true", limit=200, cursor=cursor)
+        try:
+            page = api.get("conversations.history", channel=identity, latest=str(until), inclusive="true", limit=200, cursor=cursor)
+        except RuntimeError as error:
+            if str(error) != "invalid_cursor" or not cursor or restarted:
+                raise
+            reset_channel(db, identity)
+            return collect_channel(api, db, identity, since, until, previous, restarted=True)
         following = next_cursor(page)
         if cursor and following == cursor:
             raise RuntimeError("Slack history pagination did not advance")
@@ -142,7 +149,7 @@ def collect_channel(api, db, identity, since, until, previous=None):
                     revision = json.dumps([message.get("reply_count"), message.get("latest_reply")])
                     db.execute("INSERT OR IGNORE INTO threads(channel, ts, revision) VALUES (?, ?, ?)", (identity, message["ts"], revision))
                     prior = previous.execute("SELECT revision,audited_at FROM threads WHERE channel=? AND ts=? AND done=1", (identity, message["ts"])).fetchone() if previous else None
-                    if prior and prior[0] == revision and prior[1] and until - prior[1] < 86400:
+                    if prior and prior[0] == revision and prior[1] and until - prior[1] < 86400 and message.get("latest_reply") and float(message["latest_reply"]) <= prior_until:
                         # Slack has no edit cursor: unchanged replies are re-read at least daily.
                         rows = [json.loads(r[0]) for r in previous.execute("SELECT payload FROM messages WHERE channel=? AND json_extract(payload,'$.thread_ts')=? AND ts!=?", (identity, message["ts"], message["ts"]))]
                         save_messages(db, identity, rows, since, until)
@@ -153,7 +160,13 @@ def collect_channel(api, db, identity, since, until, previous=None):
         if not pending:
             break
         ts, cursor = pending
-        page = api.get("conversations.replies", channel=identity, ts=ts, oldest=str(since), latest=str(until), inclusive="true", limit=200, cursor=cursor)
+        try:
+            page = api.get("conversations.replies", channel=identity, ts=ts, oldest=str(since), latest=str(until), inclusive="true", limit=200, cursor=cursor)
+        except RuntimeError as error:
+            if str(error) != "invalid_cursor" or not cursor or restarted:
+                raise
+            reset_channel(db, identity)
+            return collect_channel(api, db, identity, since, until, previous, restarted=True)
         following = next_cursor(page)
         if cursor and following == cursor:
             raise RuntimeError("Slack thread pagination did not advance")
@@ -163,6 +176,13 @@ def collect_channel(api, db, identity, since, until, previous=None):
             db.execute("UPDATE threads SET cursor=?, done=?,audited_at=? WHERE channel=? AND ts=?", (cursor, int(not cursor), until if not cursor else None, identity, ts))
     with db:
         db.execute("UPDATE channels SET done=1,error=NULL WHERE id=?", (identity,))
+
+
+def reset_channel(db, identity):
+    with db:
+        for table in ("messages", "threads", "omitted_credentials"):
+            db.execute(f"DELETE FROM {table} WHERE channel=?", (identity,))
+        db.execute("UPDATE channels SET cursor='',history_done=0,done=0,error=NULL WHERE id=?", (identity,))
 
 
 def status(db):
@@ -190,7 +210,9 @@ def collect(api, db, since, until, previous=None):
             db.execute("INSERT INTO channels(id,info) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET info=excluded.info", (identity, json.dumps(info)))
         for (identity,) in list(db.execute("SELECT id FROM channels")):
             if identity not in channels:
-                db.execute("UPDATE channels SET done=0,error='access_not_confirmed' WHERE id=?", (identity,))
+                for table in ("messages", "threads", "omitted_credentials"):
+                    db.execute(f"DELETE FROM {table} WHERE channel=?", (identity,))
+                db.execute("DELETE FROM channels WHERE id=?", (identity,))
     for identity in channels:
         if db.execute("SELECT done FROM channels WHERE id=?", (identity,)).fetchone()[0]:
             continue
@@ -198,7 +220,8 @@ def collect(api, db, since, until, previous=None):
             collect_channel(api, db, identity, since, until, previous)
         except (httpx.HTTPError, ValueError, RuntimeError) as error:
             with db:
-                db.execute("UPDATE channels SET error=? WHERE id=?", (type(error).__name__, identity))
+                code = str(error) if isinstance(error, RuntimeError) and re.fullmatch(r"[a-z_]{1,60}", str(error)) else type(error).__name__
+                db.execute("UPDATE channels SET error=? WHERE id=?", (code, identity))
         print(json.dumps(status(db)), flush=True)
     result = status(db)
     if result["failed_channels"] or result["complete_channels"] != result["channels"]:
