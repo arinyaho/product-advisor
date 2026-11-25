@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh channel access independently of long collection and indexing jobs
+
+[Timer]
+OnCalendar=hourly
+OnBootSec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

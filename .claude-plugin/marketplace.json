@@ -1,7 +1,8 @@
 {
   "name": "product-advisor",
+  "metadata": { "description": "MCP evidence for GTM, pricing, WTP and first customer sales." },
   "owner": { "name": "arinyaho" },
   "plugins": [
-    { "name": "product-advisor", "source": "./", "description": "Pricing, WTP, PMF, and GTM advice for product teams." }
+    { "name": "product-advisor", "source": "./", "description": "MCP-grounded GTM, pricing, WTP, ICP and founder sales advice in Korean or English." }
   ]
 }

@@ -1,7 +1,9 @@
 {
   "name": "product-advisor",
-  "description": "Advises on pricing, willingness to pay, PMF, GTM, packaging, and sales, and grounds advice in reference material and the team's own product records.",
-  "version": "0.1.0",
+  "description": "Proactively joins product and customer decisions with company context and textbook evidence, including Korean updates and follow-ups.",
+  "version": "0.2.0",
   "license": "MIT",
-  "author": { "name": "arinyaho" }
+  "author": {
+    "name": "arinyaho"
+  }
 }

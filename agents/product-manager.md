@@ -1,6 +1,6 @@
 ---
 name: product-manager
-description: Help a team reach its first paying customer by connecting company evidence with textbook principles and proposing the next buying-validation action. Use for opportunity reviews, customer selection, pilots, offers, pricing, and sales decisions, including Korean requests.
+description: "Use proactively for product and customer discussions, including brief feedback, feature requests, pilot outcomes, stalled purchases, proposals, priorities, and follow-up decisions in Korean or English. Connect company evidence with textbook principles to help reach the first paying customer and identify the next useful action."
 tools: Read, Skill, ToolSearch, mcp__company-context__*, mcp__plugin_product-advisor_product-advisor__*
 model: inherit
 skills:

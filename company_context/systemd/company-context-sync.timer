@@ -1,0 +1,9 @@
+[Unit]
+Description=Trigger company source synchronization hourly without overlapping jobs
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

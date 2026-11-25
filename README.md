@@ -30,6 +30,11 @@ The skill helps interpret evidence; the MCP server returns source passages rathe
 The [company context service](company_context/README.md) runs a separate LightRAG snapshot and authenticated MCP on a company host. It returns original company passages and graph descriptions with handles for checking their sources. Company records and indices stay separate from the public book service; external model processing requires explicit operator configuration.
 
 The Product Advisor skill performs three roles: retrieve textbook evidence, reconstruct company context, and combine both to support a decision. The Claude Code [Product Manager agent](agents/product-manager.md) uses this integrated skill and calls both MCPs independently. The user owns the decision. Three standalone skills are not implemented. Only generic conceptual questions go to the book MCP.
+### Automatic skill selection
+
+The skill description covers product and customer discussions, including short feedback reports, feature requests, pilot outcomes, stalled purchases, proposals, priorities, and Korean follow-ups without an explicit question. It asks for a brief connection to the current decision rather than a full report on every mention. It instructs the assistant to retrieve MCP evidence before substantive business advice, even when the user does not mention the MCP. Directly relevant evidence can be reused for follow-ups. Pure translation, formatting, implementation of an already decided price, and MCP administration are outside this routing scope.
+
+This is implicit skill invocation, not a hook. The client chooses the skill from its description; `agents/openai.yaml` explicitly permits implicit invocation and declares the existing `product-advisor` MCP dependency. Selection is model-driven, not a guaranteed keyword rule. Use `$product-advisor` in Codex when explicit invocation is needed. Codex detects skill edits automatically; restart Codex if an edit does not appear. Other clients must update their installed plugin. See the [official skill documentation](https://learn.chatgpt.com/docs/build-skills).
 
 ## MCP tools
 
@@ -40,7 +45,7 @@ The Product Advisor skill performs three roles: retrieve textbook evidence, reco
 | `list_sections(book_id=None, offset=0, limit=100)` | Book-identified contents with `total` and `next_offset`; all books when the filter is omitted. |
 | `get_section(id, start_page=None, book_id=None)` | Bounded source text and continuation arguments. Existing numeric IDs still identify the same Reference A sections. |
 
-Use `book_id="book-a"`, `"book-b"`, or `"book-c"` to constrain retrieval. Follow a hit's `read_section` arguments, then the returned continuation to read more. PDF locations are PDF pages; EPUB locations identify document, anchor, block and word range. Unverified printed pages remain null.
+Use an actual `book_id` returned by `list_books()` to constrain retrieval. Follow a hit's `read_section` arguments, then the returned continuation to read more. PDF locations are PDF pages; EPUB locations identify document, anchor, block and word range. Unverified printed pages remain null.
 
 `mix` uses LightRAG graph navigation and source vectors; `naive` uses vectors for comparison. Check `requested_mode`, `actual_mode`, `status`, and `fallback` before relying on results. Failure returns `actual_mode=null`, `status=unavailable`, and `fallback=false`. Graph links are model-extracted or derived navigation, not author quotations or verified customer facts. Search excludes index/contents and heading-only chunks before reranking; their text and contents remain readable.
 
@@ -77,6 +82,13 @@ claude mcp add --scope user --transport stdio company-context -- ssh -T -o Batch
 The token stays on the company host. Verify both servers with `claude mcp get company-context` and `claude mcp get plugin:product-advisor:product-advisor`, then start a fresh session with `claude --agent product-advisor:product-manager`. The agent preloads the integrated skill and has read tools for these two MCPs. Test `company_index_status` and `list_books` before relying on either source. The plugin does not automatically register a company endpoint or distribute its credentials. Configure the company service with the [operator guide](company_context/README.md).
 
 For local development before installing an updated plugin, copy `agents/product-manager.md` into `~/.claude/agents/product-manager.md` and use `claude --agent product-manager`. Keep the installed `product-advisor:product-advisor` skill current; a local agent copy does not update itself when the repository changes.
+
+The shared skill also supports automatic selection in Claude Code. Invoke `/product-advisor:product-advisor` explicitly when needed. After a published update, refresh this marketplace and update the installed plugin, then restart Claude Code:
+
+```sh
+claude plugin marketplace update product-advisor
+claude plugin update product-advisor@product-advisor
+```
 
 ### Codex
 

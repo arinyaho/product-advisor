@@ -42,7 +42,8 @@ def main():
     @mcp.tool()
     def get_company_source(chunk_id: str) -> dict:
         """Read the exact internal source passage and provenance returned by company search.
-        Follow previous_chunk_id/next_chunk_id for surrounding passages and later thread replies."""
+        Follow previous_chunk_id/next_chunk_id for surrounding passages and later thread replies.
+        Follow root_chunk_id for the opening message; messages retains individual speakers and times."""
         return call("get_company_source", {"chunk_id": chunk_id})
 
     mcp.run()

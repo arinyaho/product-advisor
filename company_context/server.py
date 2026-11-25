@@ -24,15 +24,25 @@ def token_from_file(path):
     return token
 
 
-def create_app(corpus, rag, token_file):
+def create_app(corpus, rag, token_file, access_state=None, sync_state=None):
     token_from_file(token_file)
     mcp = MCPServer("company-context", instructions="Internal source retrieval for one authorized reader. Graph descriptions are derived navigation, not facts. Follow sources[].read_source with get_company_source before relying on a graph claim. Compare original claims by subject, actor, decision scope and event time: same-scope replacement, different scope, coexisting perspectives, or unresolved. Recency alone does not establish authority. Never send company records to the public book MCP.")
+
+    def current_availability():
+        from company_context.sync import availability
+        return availability(corpus, access_state, sync_state)
+
+    def require_available():
+        state = current_availability()
+        if state != "ready":
+            raise ToolError(state)
 
     @mcp.tool()
     def company_index_status() -> dict:
         """Check snapshot identity, reader scope and coverage before using company evidence."""
+        from company_context.sync import progress
         collected = [r["collected_at"] for r in corpus.records.values()]
-        return {"snapshot": corpus.version, "principal": corpus.principal, "source_count": len(corpus.records), "source_types": sorted({r["source_type"] for r in corpus.records.values()}), "collected_from": min(collected, key=timestamp), "collected_through": max(collected, key=timestamp), "coverage": "explicit_snapshot_not_all_company_knowledge", "context_version": 3, "graph_descriptions": True, "applicability": "caller_reviews_original_sources_not_automatically_resolved"}
+        return {"snapshot": corpus.version, "principal": corpus.principal, "source_count": len(corpus.records), "source_types": sorted({r["source_type"] for r in corpus.records.values()}), "collected_from": min(collected, key=timestamp, default=None), "collected_through": max(collected, key=timestamp, default=None), "coverage": corpus.snapshot.get("collection", "explicit_snapshot_not_all_company_knowledge"), "availability": current_availability(), "ingestion": progress(sync_state), "context_version": 3, "graph_descriptions": True, "applicability": "caller_reviews_original_sources_not_automatically_resolved"}
 
     @mcp.tool()
     async def search_company_context(query: str, mode: str = "mix", k: int = 5) -> dict:
@@ -48,7 +58,10 @@ def create_app(corpus, rag, token_file):
         Contradictions and unknown reasons
         must remain explicit. Empty matches do not prove the company has no such evidence."""
         try:
-            return await search(corpus, rag, query, mode, k)
+            require_available()
+            result = await search(corpus, rag, query, mode, k)
+            require_available()
+            return result
         except ValueError as error:
             raise ToolError(str(error)) from None
 
@@ -56,8 +69,11 @@ def create_app(corpus, rag, token_file):
     def get_company_source(chunk_id: str) -> dict:
         """Read an exact source chunk with provenance from the active snapshot.
         Follow previous_chunk_id/next_chunk_id to inspect the surrounding source or full thread.
+        For Slack conversations, follow root_chunk_id to read the opening message; an absent
+        root is explicitly outside the capture. messages retains each speaker, time and URL.
         A matching passage alone does not establish the source's final decision."""
         try:
+            require_available()
             return corpus.read(chunk_id)
         except ValueError as error:
             raise ToolError(str(error)) from None
@@ -89,7 +105,10 @@ def main():
     parser.add_argument("--config", type=Path, required=True, help="Explicit model configuration; credentials are file references")
     parser.add_argument("--directory", type=Path, required=True, help="New snapshot directory for build; completed directory for serve")
     parser.add_argument("--input", type=Path, help="Complete, authorized source snapshot JSON")
+    parser.add_argument("--previous", type=Path, help="Completed index to copy and update without changing the served snapshot")
     parser.add_argument("--token-file", type=Path)
+    parser.add_argument("--access-state", type=Path, help="Hourly channel ACL inventory; stale or missing inventory blocks evidence reads")
+    parser.add_argument("--sync-state", type=Path, help="Known source changes block the previous index until replacement")
     parser.add_argument("--max-model-calls", type=int, default=200)
     parser.add_argument("--budget-usd", type=float, default=5.0)
     parser.add_argument("--port", type=int, default=8766)
@@ -106,13 +125,18 @@ def main():
 
     async def run():
         if args.command == "build":
-            ready = await build(json.loads(args.input.read_text()), args.directory, models)
+            ready = await build(json.loads(args.input.read_text()), args.directory, models, args.previous)
             print(json.dumps(ready))
             return
         import uvicorn
         corpus, rag = await open_index(args.directory, models)
         try:
-            app = create_app(corpus, rag, args.token_file)
+            from company_context.sync import availability
+            def authorize():
+                if availability(corpus, args.access_state, args.sync_state) != "ready":
+                    raise ValueError("Source access changed")
+            models.authorize = authorize
+            app = create_app(corpus, rag, args.token_file, args.access_state, args.sync_state)
             await uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, access_log=False)).serve()
         finally:
             await close_engine(rag)

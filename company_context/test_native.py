@@ -75,6 +75,34 @@ def test_native_build_reopen_and_retrieve_preserve_two_source_identities(tmp_pat
     asyncio.run(run())
 
 
+def test_incremental_candidate_removes_deleted_sources_without_mutating_active_index(tmp_path):
+    async def run():
+        models = SyntheticModels()
+        first = corpus([record(), record("deleted"), record("edited", text="Earlier position.")])
+        original = tmp_path / "original"
+        await build(first.snapshot, original, models)
+        next_snapshot = corpus([record(), record("edited", text="Revised position.")])
+        candidate = tmp_path / "candidate"
+        await build(next_snapshot.snapshot, candidate, models, original)
+        reopened, rag = await open_index(candidate, models)
+        try:
+            removed = set(first.native_chunks) - set(reopened.native_chunks)
+            assert removed
+            assert all(row is None for row in await rag.text_chunks.get_by_ids(list(removed)))
+            result = await search(reopened, rag, "Pilot evaluation", "mix", 20)
+            assert {r["source_id"] for r in result["results"]} == {"meeting-1", "edited"}
+            assert all(s["source_id"] != "deleted" for row in result["graph"] for s in row["sources"])
+        finally:
+            await close_engine(rag)
+        untouched, rag = await open_index(original, models)
+        try:
+            assert set(untouched.records) == {"meeting-1", "deleted", "edited"}
+            assert untouched.records["edited"]["text"] == "Earlier position."
+        finally:
+            await close_engine(rag)
+    asyncio.run(run())
+
+
 def parse_rpc(response):
     response.raise_for_status()
     if response.headers.get("content-type", "").startswith("application/json"):

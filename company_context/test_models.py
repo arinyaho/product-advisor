@@ -72,3 +72,20 @@ def test_truncated_extraction_is_rejected(monkeypatch, tmp_path):
         with pytest.raises(RuntimeError, match="no automatic replay"):
             await restarted.extract("do not replay")
     asyncio.run(run())
+
+
+def test_reviewed_failure_retains_its_reserved_cost_and_original_receipt(tmp_path):
+    path = tmp_path / "receipts.jsonl"
+    failed = {"call": 1, "status": "failed_cost_unknown", "charged_or_estimated_usd": .02}
+    path.write_text(json.dumps(failed) + "\n")
+    assert Models(config(), receipts=path).failed
+    reviewed = {**failed, "status": "reviewed_failure_cost_reserved", "operator_review": "Independent diagnostic succeeded; authorize one new query attempt."}
+    with path.open("a") as stream:
+        stream.write(json.dumps(reviewed) + "\n")
+    reopened = Models(config(), receipts=path, budget=.03)
+    assert not reopened.failed
+    assert reopened.cost == pytest.approx(.02)
+    assert reopened.calls == 1
+    with pytest.raises(RuntimeError, match="limit"):
+        reopened.reserve("synthetic", "/embeddings", .02)
+    assert json.loads(path.read_text().splitlines()[0]) == failed
