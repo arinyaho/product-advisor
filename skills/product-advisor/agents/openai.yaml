@@ -1,6 +1,6 @@
 interface:
   display_name: "Product Advisor"
-  short_description: "Evidence for GTM, pricing, WTP and first customer sales"
+  short_description: "Company and book evidence for product and customer decisions"
   default_prompt: "Use $product-advisor to review this customer decision using MCP evidence."
 dependencies:
   tools:

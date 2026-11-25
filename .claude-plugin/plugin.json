@@ -1,7 +1,9 @@
 {
   "name": "product-advisor",
-  "description": "Uses Product Advisor MCP evidence for GTM, pricing, WTP, PMF, ICP, packaging, founder sales and buying decisions, including Korean customer situations.",
-  "version": "0.1.1",
+  "description": "Proactively joins product and customer decisions with company context and textbook evidence, including Korean updates and follow-ups.",
+  "version": "0.2.0",
   "license": "MIT",
-  "author": { "name": "arinyaho" }
+  "author": {
+    "name": "arinyaho"
+  }
 }
