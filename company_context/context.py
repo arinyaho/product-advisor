@@ -217,7 +217,12 @@ class Models:
         latest = {row["call"]: row for row in (json.loads(line) for line in stream)}
         self.calls = max(latest, default=0)
         self.cost = sum(row["charged_or_estimated_usd"] for row in latest.values())
-        self.failed = self.failed or any(row["status"] != "completed" and not (row["status"] == "pending_cost_unknown" and row["call"] in self.active_calls) for row in latest.values())
+        self.failed = self.failed or any(
+            row["status"] != "completed"
+            and not (row["status"] == "pending_cost_unknown" and row["call"] in self.active_calls)
+            and not (row["status"] == "reviewed_failure_cost_reserved" and row.get("operator_review"))
+            for row in latest.values()
+        )
 
     @staticmethod
     def append_receipt(stream, receipt):
@@ -257,6 +262,7 @@ class Models:
         try:
             async with httpx.AsyncClient(timeout=180, follow_redirects=False, trust_env=False) as client:
                 response = await client.post(base + endpoint, json=payload, headers=headers)
+                receipt["http_status"] = response.status_code
                 response.raise_for_status()
                 result = response.json()
                 usage = result.get("usage", {})
@@ -284,8 +290,9 @@ class Models:
             self.failed = True
             receipt["status"] = "cancelled_cost_unknown"
             raise
-        except Exception:
+        except Exception as error:
             self.failed = True
+            receipt["error_type"] = type(error).__name__
             raise RuntimeError(failure) from None
         finally:
             self.record_receipt(receipt)
