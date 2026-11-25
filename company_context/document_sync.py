@@ -67,9 +67,7 @@ async def synchronize(root, settings):
             if not remaining or len(row["text"]) > remaining_characters: continue
             selected.append(row)
             remaining -= 1; remaining_characters -= len(row["text"])
-        merged = merge_records(snapshot["records"], incoming["records"], provider)
-        others = merged[:-len(incoming["records"])] if incoming["records"] else merged
-        snapshot["records"] = others + sorted(retained + selected, key=lambda r: r["source_id"])
+        snapshot["records"] = merge_records(snapshot["records"], sorted(retained + selected, key=lambda r: r["source_id"]), provider)
         count = len(retained) + len(selected)
         coverage[provider] = {**incoming["collection"], "available_sources": len(incoming["records"]), "indexed_sources": count, "index_complete": count == len(incoming["records"])}
         status[provider].update(indexed_sources=len(retained), batch_sources=len(selected), remaining_sources=len(pending))
@@ -80,7 +78,7 @@ async def synchronize(root, settings):
     write_json(root / "document-ingestion.json", status)
     if not changed:
         return
-    if snapshot["principal"] == old["principal"] and snapshot["records"] == old["records"]:
+    if snapshot["principal"] == old["principal"] and sorted(snapshot["records"], key=lambda r: r["source_id"]) == sorted(old["records"], key=lambda r: r["source_id"]):
         state["document_imports"] = imports
         write_json(state_path, state)
         for entry in status.values():

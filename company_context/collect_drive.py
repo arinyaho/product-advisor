@@ -55,7 +55,21 @@ class Drive:
             if response.status_code in (429, 500, 502, 503, 504):
                 response.close(); time.sleep(min(2 ** attempt, 16)); continue
             if response.status_code != 200:
-                code = response.status_code; response.close()
+                code = response.status_code
+                try:
+                    body = b""
+                    for chunk in response.iter_content(4096):
+                        body += chunk
+                        if len(body) > 65536: break
+                    error = json.loads(body) if len(body) <= 65536 else {}
+                    if code == 403 and any(v.get("reason") == "exportSizeLimitExceeded" for v in error.get("error", {}).get("errors", [])):
+                        raise Omitted("native_export_size_limit")
+                except Omitted:
+                    raise
+                except (ValueError, KeyError, TypeError):
+                    pass
+                finally:
+                    response.close()
                 raise RuntimeError(f"drive_http_{code}")
             try:
                 chunks, size = [], 0

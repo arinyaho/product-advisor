@@ -57,7 +57,7 @@ def notion_records(db, settings, finished):
                 result.extend(children(block["id"], visiting | {identity}, dependencies))
         return result
 
-    records = []
+    records, omissions = [], {}
     for (identity,) in db.execute("SELECT id FROM tasks WHERE kind='page' ORDER BY id"):
         page = object_row(db, "page", identity) or {}
         if page.get("archived") or page.get("in_trash"): continue
@@ -69,10 +69,12 @@ def notion_records(db, settings, finished):
             values = members(db, "property", key)
             envelopes = [v["response"].get("property_item") for v in values if v.get("object") == "response_metadata" and not v["response"].get("next_cursor")]
             items = [v for v in values if v.get("object") == "property_item"]
-            if envelopes and envelopes[-1]:
-                value = envelopes[-1]
-            elif items:
+            if items:
                 value = [{k: v for k, v in item.items() if k not in ("id", "object")} for item in items]
+                if prop.get("type") == "rollup" and envelopes and envelopes[-1]:
+                    value = {"items": value, "aggregate": envelopes[-1].get("rollup")}
+            elif prop.get("type") == "rollup" and envelopes and envelopes[-1]:
+                value = envelopes[-1]
             elif db.execute("SELECT 1 FROM tasks WHERE kind='property' AND id=?", (key,)).fetchone():
                 value = "[Property omitted or empty; see capture coverage]"
             else:
@@ -81,10 +83,12 @@ def notion_records(db, settings, finished):
         dependencies = set()
         parts.extend(children(identity, set(), dependencies))
         text = "\n\n".join(part for part in parts if part)
-        if len(text) > 2_000_000: raise ValueError("Notion page exceeds source size bound; split explicitly before indexing")
-        if SECRET.search(text): raise ValueError("Exported Notion text contains a credential pattern")
+        omission = "source_size_limit" if len(text) > 2_000_000 else "credential_pattern" if SECRET.search(text) else None
+        if omission:
+            omissions.setdefault(omission, []).append(identity)
+            continue
         records.append({"source_id": "notion:" + settings["workspace_id"] + ":" + identity, "source_type": "notion", "url": page.get("url") or "https://www.notion.so/" + identity.replace("-", ""), "title": title, "text": text, "author": page.get("created_by", {}).get("id"), "occurred_at": page.get("created_time"), "updated_at": page.get("last_edited_time"), "collected_at": finished, "record_kind": "source", "coverage": "Captured page properties and ordered block text; formatting normalized. Files, unsupported blocks, credential-pattern payloads and comments are excluded from indexing. Page metadata can be withheld independently of safe descendant text.", "provider_scope": {"provider": "notion", "connection": settings["connection_id"], "resource_id": identity, "dependencies": sorted(dependencies)}})
-    return records
+    return records, omissions
 
 
 def export_capture(provider, settings, principal):
@@ -98,8 +102,8 @@ def export_capture(provider, settings, principal):
             if meta.get("capture_schema") != "2" or meta.get("workspace_id") != settings["workspace_id"] or meta.get("connection_id") != settings["connection_id"]:
                 raise ValueError("Notion capture identity or schema differs")
             if db.execute("SELECT count(*) FROM tasks WHERE done=0 OR error IS NOT NULL").fetchone()[0]: raise IncompleteCapture("capture_has_unfinished_tasks")
-            rows = notion_records(db, settings, meta["finished_at"])
-            coverage = {"omissions": dict(db.execute("SELECT reason,count(*) FROM omissions GROUP BY reason"))}
+            rows, omissions = notion_records(db, settings, meta["finished_at"])
+            coverage = {"omissions": dict(db.execute("SELECT reason,count(*) FROM omissions GROUP BY reason")), "export_omissions": omissions}
         elif provider == "drive":
             if meta.get("email") != settings["email"] or meta.get("permission_id") != settings["permission_id"] or meta.get("capture_schema") != "1": raise ValueError("Drive capture identity or schema differs")
             if db.execute("SELECT count(*) FROM scopes WHERE done=0").fetchone()[0] or db.execute("SELECT count(*) FROM files WHERE status IN ('pending','failed')").fetchone()[0]: raise IncompleteCapture("capture_has_unfinished_tasks")
@@ -172,7 +176,11 @@ def refresh_document_access(root, settings, snapshots):
                     connection = config["connection_id"]
                 finally: api.client.close()
             elif provider == "drive":
-                api = Drive(config["credentials_file"], config["email"])
+                try:
+                    api = Drive(config["credentials_file"], config["email"])
+                except ValueError:
+                    revoke()
+                    raise
                 try:
                     connection = api.identity["permissionId"]
                     if connection != config["permission_id"]:

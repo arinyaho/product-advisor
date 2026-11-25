@@ -275,6 +275,39 @@ class Models:
             self.active_calls.add(self.calls)
         return receipt
 
+    def price_reservation(self, kind, payload):
+        ceiling = self.config.get("cost_ceiling", {}).get(kind)
+        if not ceiling:
+            if self.config.get("require_price_ceiling"):
+                raise ValueError("Ingestion requires a model-specific price ceiling")
+            return .10 if kind == "chat" else .02
+        prices = ceiling["max_price"]
+        context = ceiling["context_tokens"]
+        multiplier = ceiling["cache_multiplier"]
+        if ceiling["model"] != payload["model"] or type(context) is not int or context < 1:
+            raise ValueError("Invalid model-specific context ceiling")
+        if not isinstance(multiplier, (int, float)) or not np.isfinite(multiplier) or multiplier < 1:
+            raise ValueError("Invalid cache price multiplier")
+        if set(prices) != {"prompt", "completion", "request"} or any(not isinstance(v, (int, float)) or not np.isfinite(v) or v < 0 for v in prices.values()):
+            raise ValueError("Invalid provider price ceiling")
+        if self.config.get("external_provider") != "openrouter":
+            raise ValueError("Price-capped routing requires OpenRouter")
+        if kind == "chat":
+            if any(not isinstance(m.get("content"), str) for m in payload["messages"]):
+                raise ValueError("Only text messages have a bounded ingestion price")
+            output = payload["max_tokens"]
+            input_bound = len(json.dumps(payload["messages"], ensure_ascii=False).encode()) + 1024 * len(payload["messages"])
+            if input_bound + output > context:
+                raise ValueError("Input exceeds the configured model context bound")
+            amount = context * prices["prompt"] * multiplier / 1_000_000 + output * prices["completion"] / 1_000_000
+        else:
+            if not payload["input"] or any(not isinstance(v, str) or len(v.encode()) + 1024 > context for v in payload["input"]):
+                raise ValueError("Embedding input exceeds the configured context bound")
+            amount = len(payload["input"]) * context * prices["prompt"] * multiplier / 1_000_000
+        payload["provider"] = {"max_price": prices, "allow_fallbacks": False}
+        if kind == "chat": payload["provider"]["require_parameters"] = True
+        return amount + prices["request"] + .000001
+
     async def request(self, kind, endpoint, payload):
         if self.authorize:
             try:
@@ -283,7 +316,7 @@ class Models:
             except Exception:
                 self.access_denied = True
                 raise RuntimeError("Source access changed; model dispatch stopped") from None
-        reserve = .10 if kind == "chat" else .02
+        reserve = self.price_reservation(kind, payload)
         base = validate_model_url(self.config[kind + "_url"], self.config.get("external_provider"))
         headers = {}
         key_file = self.config.get(kind + "_key_file")
@@ -304,6 +337,8 @@ class Models:
                     raise ValueError("Invalid model billing response")
                 self.cost += cost - reserve
                 receipt.update(status="invalid_response", usage=usage, charged_or_estimated_usd=cost)
+                if self.config.get("cost_ceiling", {}).get(kind) and cost > reserve:
+                    raise ValueError("Provider billed above the reserved price ceiling")
                 if kind == "chat":
                     choice = result["choices"][0]
                     output = choice["message"]["content"]

@@ -84,7 +84,10 @@ def withdraw_changed(previous, current, state, path, *, slack_only=False):
     if not previous:
         return
     old = previous if not slack_only else {"records": [r for r in previous["records"] if r["source_type"] == "slack"]}
-    if changed_or_removed(old, current):
+    changed = changed_or_removed(old, current)
+    if changed:
+        withdrawn = state.setdefault("withdrawn_sources", {})
+        withdrawn[digest(previous)] = sorted(set(withdrawn.get(digest(previous), [])) | changed)
         state["blocked_snapshots"] = sorted(set(state.get("blocked_snapshots", [])) | {digest(previous)})
         write_json(path, state)
 
@@ -144,10 +147,16 @@ async def publish_snapshot(args, snapshot, state, previous, refresh, updates):
     root = args.state_dir
     state_path = root / "sync.json"
     previous_snapshot = json.loads((previous / "snapshot.json").read_text()) if previous else None
+    if previous_snapshot and digest(previous_snapshot) in state.get("blocked_snapshots", []):
+        withdrawn = state.get("withdrawn_sources", {}).get(digest(previous_snapshot))
+        replaced = changed_or_removed(previous_snapshot, snapshot)
+        if withdrawn is None or not set(withdrawn) <= replaced:
+            raise ValueError("Candidate carries withdrawn evidence; reconcile the affected sources first")
     corpus = Corpus(snapshot)
     current = root / "current"
     require_access(corpus, root / "access.json")
     config = json.loads(args.config.read_text())
+    config["require_price_ceiling"] = True
     # One ledger spans all synchronization builds; a new generation does not reset spending.
     models = Models(config, args.max_model_calls, root / "sync-model-receipts.jsonl", args.budget_usd, authorize=lambda: require_access(corpus, root / "access.json"))
     candidate = root / "releases" / corpus.version[:24]
@@ -295,13 +304,13 @@ async def synchronize(args):
         managed = [r for r in (previous_snapshot or {}).get("records", []) if "provider_scope" in r]
         if managed:
             from company_context.document_sources import merge_records
-            for provider in {r["provider_scope"]["provider"] for r in managed}:
+            for provider in sorted({r["provider_scope"]["provider"] for r in managed}):
                 snapshot["records"] = merge_records(snapshot["records"], [r for r in managed if r["provider_scope"]["provider"] == provider], provider)
             snapshot["collection"]["managed_sources"] = previous_snapshot.get("collection", {}).get("managed_sources", {})
         withdraw_changed(previous_snapshot, snapshot, state, state_path)
         corpus = Corpus(snapshot)
         require_access(corpus, root / "access.json")
-        if previous_snapshot and previous_snapshot["records"] == snapshot["records"]:
+        if previous_snapshot and sorted(previous_snapshot["records"], key=lambda r: r["source_id"]) == sorted(snapshot["records"], key=lambda r: r["source_id"]):
             state.update(phase="unchanged", last_database=str(database), last_collected_at=snapshot["collection"]["completed_at"])
             state.pop("pending_database", None); state.pop("pending_until", None)
             write_json(state_path, state)
