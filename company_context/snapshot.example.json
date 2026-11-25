@@ -11,6 +11,7 @@
       "updated_at": null,
       "collected_at": "2026-10-03T09:00:00+09:00",
       "record_kind": "source",
+      "slack_conversation": {"id": "C001", "is_im": false, "is_mpim": false, "is_private": false, "is_member": true},
       "coverage": "One synthetic message; no customer data",
       "text": "The customer completed the trial and declined to purchase. The account owner has not yet confirmed the customer's reason. The operator liked the export workflow, but the budget owner did not attend the review."
     }

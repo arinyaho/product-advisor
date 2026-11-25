@@ -21,6 +21,7 @@ def record(source_id="meeting-1", **changes):
         "updated_at": "2026-10-02T09:00:00+09:00",
         "collected_at": "2026-10-03T09:00:00+09:00",
         "record_kind": "source",
+        "slack_conversation": {"id": "C001", "is_im": False, "is_mpim": False, "is_private": False, "is_member": True},
         "text": "The pilot was completed. The customer declined the purchase. The reason is unknown.",
         **changes,
     }

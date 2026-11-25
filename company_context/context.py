@@ -45,6 +45,34 @@ def source_url(value):
         raise ValueError("Source links must be HTTPS URLs without credentials")
 
 
+def slack_channel_id(url):
+    parsed = urlsplit(url)
+    parts = parsed.path.split("/")
+    if (parsed.hostname or "").endswith(".slack.com") and len(parts) > 2 and parts[1] == "archives":
+        return parts[2]
+    return None
+
+
+def validate_slack_source(source):
+    links = [source["url"], *source.get("derived_from", [])]
+    if any((slack_channel_id(link) or "").startswith("D") for link in links):
+        raise ValueError("Slack DMs cannot enter the company corpus, including attributed summaries")
+    channel = slack_channel_id(source["url"])
+    if source["source_type"] != "slack":
+        if channel:
+            raise ValueError("Slack sources must retain their conversation classification")
+        return
+    info = source.get("slack_conversation")
+    if not isinstance(info, dict) or not channel or info.get("id") != channel:
+        raise ValueError("Slack sources require matching API conversation metadata")
+    if any(type(info.get(key)) is not bool for key in ("is_im", "is_mpim", "is_private")):
+        raise ValueError("Slack conversation type is unknown; exclude it before indexing")
+    if info["is_im"] or info["is_mpim"]:
+        raise ValueError("Slack DMs and group DMs cannot enter the company corpus")
+    if info["is_private"] and info.get("is_member") is not True:
+        raise ValueError("Slack private channels require the reader's confirmed membership")
+
+
 class Corpus:
     def __init__(self, snapshot):
         if not isinstance(snapshot.get("principal"), str) or not snapshot["principal"].strip():
@@ -67,6 +95,7 @@ class Corpus:
             if "author" not in source or not (source["author"] is None or isinstance(source["author"], str)):
                 raise ValueError("Provide the author or an explicit null when unknown")
             source_url(source["url"])
+            validate_slack_source(source)
             if len(source["text"]) > 200_000 or any(len(source[k]) > 2048 for k in ("source_id", "url", "title")):
                 raise ValueError("Source exceeds pilot size limits")
             timestamp(source["collected_at"])
