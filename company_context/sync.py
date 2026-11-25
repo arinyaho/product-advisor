@@ -58,6 +58,13 @@ def availability(corpus, access_path=None, sync_path=None):
             channels = {slack_channel_id(u) for r in corpus.records.values() for u in [r["url"], *r.get("derived_from", [])]} - {None}
             if not channels <= set(access["channel_ids"]):
                 return "blocked_channel_access_changed"
+        if any("provider_scope" in r for r in corpus.records.values()):
+            if not access_path:
+                return "blocked_document_access_missing"
+            from company_context.document_sources import document_availability
+            document_status = document_availability(corpus, Path(access_path).parent / "document-access.json")
+            if document_status != "ready":
+                return document_status
         if sync_path and Path(sync_path).exists():
             state = json.loads(Path(sync_path).read_text())
             if corpus.version in state.get("blocked_snapshots", []):
@@ -77,9 +84,25 @@ def withdraw_changed(previous, current, state, path, *, slack_only=False):
     if not previous:
         return
     old = previous if not slack_only else {"records": [r for r in previous["records"] if r["source_type"] == "slack"]}
-    if changed_or_removed(old, current):
+    changed = changed_or_removed(old, current)
+    if changed:
+        withdrawn = state.setdefault("withdrawn_sources", {})
+        version = digest(previous)
+        if version not in state.get("blocked_snapshots", []) or version in withdrawn:
+            withdrawn[version] = sorted(set(withdrawn.get(version, [])) | changed)
         state["blocked_snapshots"] = sorted(set(state.get("blocked_snapshots", [])) | {digest(previous)})
         write_json(path, state)
+
+
+def managed_resources(state, *snapshots):
+    from company_context.document_sources import resource_identity
+    result = {key: set(values) for key, values in state.get("managed_document_resources", {}).items()}
+    for snapshot in snapshots:
+        for row in (snapshot or {}).get("records", []):
+            if "provider_scope" in row:
+                provider = row["provider_scope"]["provider"]
+                result.setdefault(provider, set()).add(resource_identity(row, provider))
+    return {key: sorted(values) for key, values in result.items()}
 
 
 def require_access(corpus, path):
@@ -114,6 +137,9 @@ def progress(state_path):
             path = Path(state["candidate"]) / "progress.json"
             if path.exists():
                 result["build"] = {k: v for k, v in json.loads(path.read_text()).items() if k in ("completed_sources", "total_sources", "model_calls")}
+        document_status = Path(state_path).parent / "document-ingestion.json"
+        if document_status.exists():
+            result["documents"] = json.loads(document_status.read_text())
         return result
     except (OSError, ValueError, KeyError, sqlite3.Error):
         return {"phase": "progress_unavailable"}
@@ -130,8 +156,83 @@ def publish(directory, current):
     os.replace(temporary, current)
 
 
+async def publish_snapshot(args, snapshot, state, previous, refresh, updates):
+    root = args.state_dir
+    state_path = root / "sync.json"
+    previous_snapshot = json.loads((previous / "snapshot.json").read_text()) if previous else None
+    if previous_snapshot and digest(previous_snapshot) in state.get("blocked_snapshots", []):
+        withdrawn = state.get("withdrawn_sources", {}).get(digest(previous_snapshot))
+        replaced = changed_or_removed(previous_snapshot, snapshot)
+        if withdrawn is None or not set(withdrawn) <= replaced:
+            raise ValueError("Candidate carries withdrawn evidence; reconcile the affected sources first")
+    corpus = Corpus(snapshot)
+    current = root / "current"
+    require_access(corpus, root / "access.json")
+    config = json.loads(args.config.read_text())
+    config["require_price_ceiling"] = True
+    # One ledger spans all synchronization builds; a new generation does not reset spending.
+    models = Models(config, args.max_model_calls, root / "sync-model-receipts.jsonl", args.budget_usd, authorize=lambda: require_access(corpus, root / "access.json"))
+    candidate = root / "releases" / corpus.version[:24]
+    state.update(phase="building", candidate=str(candidate), sources=len(corpus.records), chunks=len(corpus.chunks))
+    write_json(state_path, state)
+    switched = False
+    try:
+        # Legacy pilot snapshots have a different reader/chunking contract and need a fresh build.
+        base = previous if previous_snapshot and previous_snapshot.get("collection", {}).get("kind") in ("slack_channel_capture", "company_capture") else None
+        if base and json.loads((base / "ready.json").read_text())["config"] != index_config(models, corpus):
+            base = None
+        await build(snapshot, candidate, models, base)
+        verified, rag = await open_index(candidate, models)
+        from company_context.server import create_app, token_from_file
+        from starlette.testclient import TestClient
+        headers = {"Authorization": "Bearer " + token_from_file(args.mcp_token_file), "Accept": "application/json, text/event-stream"}
+        try:
+            refresh()
+            if any("provider_scope" in r for r in corpus.records.values()):
+                from company_context.document_sources import refresh_document_access
+                settings = json.loads((root / "document-sources.json").read_text())
+                refresh_document_access(root, settings, [snapshot])
+            require_access(verified, root / "access.json")
+            # Exercise the candidate's authenticated MCP before changing the served pointer.
+            with TestClient(create_app(verified, rag, args.mcp_token_file, root / "access.json"), base_url="http://testserver/mcp", headers=headers) as client:
+                accept_mcp(client, verified)
+        finally:
+            await close_engine(rag)
+        publish(candidate, current)
+        switched = True
+        subprocess.run(["systemctl", "--user", "restart", args.service], check=True)
+        # A running process alone is not acceptance: require an authenticated MCP status call.
+        import httpx
+        for attempt in range(30):
+            try:
+                with httpx.Client(base_url=f"http://127.0.0.1:{args.port}/mcp", headers=headers, timeout=10, trust_env=False) as client:
+                    accept_mcp(client, corpus)
+                break
+            except httpx.TransportError:
+                if attempt == 29:
+                    raise
+                await asyncio.sleep(1)
+        state["managed_document_resources"] = managed_resources(state, previous_snapshot, snapshot)
+        state.update(phase="published", published_snapshot=corpus.version, last_collected_at=snapshot["collection"]["completed_at"], model_calls=models.calls, charged_or_estimated_usd=models.cost, **updates)
+        if "last_database" in updates:
+            state.pop("pending_database", None); state.pop("pending_until", None)
+        write_json(state_path, state)
+    except BaseException:
+        state["phase"] = "build_failed"
+        state["blocked_snapshots"] = sorted(set(state.get("blocked_snapshots", [])) | {corpus.version})
+        write_json(state_path, state)
+        if switched:
+            subprocess.run(["systemctl", "--user", "stop", args.service], check=False)
+        raise
+
+
 async def synchronize(args):
     root = args.state_dir
+    policy_path = root / "document-sources.json"
+    if args.command == "sync" and policy_path.exists():
+        policy = json.loads(policy_path.read_text())
+        args.budget_usd = policy["budget_usd"]
+        args.max_model_calls = policy.get("max_model_calls", args.max_model_calls)
     api = Slack(args.token_file)
     try:
         access = refresh_access(api, root / "access.json")
@@ -214,63 +315,25 @@ async def synchronize(args):
                 raise ValueError("Supplement cannot reintroduce Slack records")
             snapshot["records"].extend(supplement["records"])
             snapshot["collection"]["supplement_coverage"] = "Static previously selected non-Slack sources; not synchronized by this collector"
+        from company_context.document_sources import merge_records, resource_identity
+        history = managed_resources(state, previous_snapshot)
+        for provider, identities in history.items():
+            retired_aliases = set(identities)
+            snapshot["records"] = [r for r in snapshot["records"] if resource_identity(r, provider) not in retired_aliases]
+        managed = [r for r in (previous_snapshot or {}).get("records", []) if "provider_scope" in r]
+        if managed:
+            for provider in sorted({r["provider_scope"]["provider"] for r in managed}):
+                snapshot["records"] = merge_records(snapshot["records"], [r for r in managed if r["provider_scope"]["provider"] == provider], provider)
+            snapshot["collection"]["managed_sources"] = previous_snapshot.get("collection", {}).get("managed_sources", {})
         withdraw_changed(previous_snapshot, snapshot, state, state_path)
         corpus = Corpus(snapshot)
         require_access(corpus, root / "access.json")
-        if previous_snapshot and previous_snapshot["records"] == snapshot["records"]:
+        if previous_snapshot and sorted(previous_snapshot["records"], key=lambda r: r["source_id"]) == sorted(snapshot["records"], key=lambda r: r["source_id"]):
             state.update(phase="unchanged", last_database=str(database), last_collected_at=snapshot["collection"]["completed_at"])
             state.pop("pending_database", None); state.pop("pending_until", None)
             write_json(state_path, state)
             return
-        config = json.loads(args.config.read_text())
-        # One ledger spans all synchronization builds; a new generation does not reset spending.
-        models = Models(config, args.max_model_calls, root / "sync-model-receipts.jsonl", args.budget_usd, authorize=lambda: require_access(corpus, root / "access.json"))
-        candidate = root / "releases" / corpus.version[:24]
-        state.update(phase="building", candidate=str(candidate), sources=len(corpus.records), chunks=len(corpus.chunks))
-        write_json(state_path, state)
-        switched = False
-        try:
-            # Legacy pilot snapshots have a different reader/chunking contract and need a fresh build.
-            base = previous if previous_snapshot and previous_snapshot.get("collection", {}).get("kind") == "slack_channel_capture" else None
-            if base and json.loads((base / "ready.json").read_text())["config"] != index_config(models, corpus):
-                base = None
-            await build(snapshot, candidate, models, base)
-            verified, rag = await open_index(candidate, models)
-            from company_context.server import create_app, token_from_file
-            from starlette.testclient import TestClient
-            headers = {"Authorization": "Bearer " + token_from_file(args.mcp_token_file), "Accept": "application/json, text/event-stream"}
-            try:
-                refresh_access(api, root / "access.json")
-                require_access(verified, root / "access.json")
-                # Exercise the candidate's authenticated MCP before changing the served pointer.
-                with TestClient(create_app(verified, rag, args.mcp_token_file, root / "access.json"), base_url="http://testserver/mcp", headers=headers) as client:
-                    accept_mcp(client, verified)
-            finally:
-                await close_engine(rag)
-            publish(candidate, current)
-            switched = True
-            subprocess.run(["systemctl", "--user", "restart", args.service], check=True)
-            # A running process alone is not acceptance: require an authenticated MCP status call.
-            import httpx
-            for attempt in range(30):
-                try:
-                    with httpx.Client(base_url=f"http://127.0.0.1:{args.port}/mcp", headers=headers, timeout=10, trust_env=False) as client:
-                        accept_mcp(client, corpus)
-                    break
-                except httpx.TransportError:
-                    if attempt == 29:
-                        raise
-                    await asyncio.sleep(1)
-            state.update(phase="published", last_database=str(database), published_snapshot=corpus.version, last_collected_at=snapshot["collection"]["completed_at"], model_calls=models.calls, charged_or_estimated_usd=models.cost)
-            state.pop("pending_database", None); state.pop("pending_until", None)
-            write_json(state_path, state)
-        except BaseException:
-            state["phase"] = "build_failed"
-            state["blocked_snapshots"] = sorted(set(state.get("blocked_snapshots", [])) | {corpus.version})
-            write_json(state_path, state)
-            if switched:
-                subprocess.run(["systemctl", "--user", "stop", args.service], check=False)
-            raise
+        await publish_snapshot(args, snapshot, state, previous, lambda: refresh_access(api, root / "access.json"), {"last_database": str(database)})
     finally:
         api.client.close()
 

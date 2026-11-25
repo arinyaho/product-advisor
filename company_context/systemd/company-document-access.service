@@ -1,0 +1,12 @@
+[Unit]
+Description=Revalidate Notion and Drive permissions for served and building snapshots
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/services/company-context
+UMask=0077
+ExecStart=%h/services/company-context/.venv/bin/python -m company_context.document_sync access --state-dir %h/.local/share/company-context
+TimeoutStartSec=infinity
+StandardOutput=append:%h/.local/share/company-context/document-access.log
+StandardError=inherit

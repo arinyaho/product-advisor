@@ -1,0 +1,16 @@
+[Unit]
+Description=Capture readable Google Drive files for the authorized company account
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/services/company-context
+UMask=0077
+ExecStart=%h/services/company-context/.venv/bin/python -m company_context.collect_drive --credentials-file %h/.local/share/company-context/drive-credentials.json --email REPLACE_WITH_AUTHORIZED_EMAIL --database %h/.local/share/company-context/drive-initial.sqlite
+ExecStopPost=/usr/bin/systemctl --user start --no-block company-document-sync.service
+Restart=no
+StandardOutput=append:%h/.local/share/company-context/drive-initial.log
+StandardError=inherit
+
+[Install]
+WantedBy=default.target

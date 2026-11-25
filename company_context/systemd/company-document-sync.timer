@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry completed document publication after a busy source job
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=15min
+Unit=company-document-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -36,7 +36,9 @@ def test_full_capture_preserves_exact_object_identities_and_denied_comment_cover
     assert set(db.execute("SELECT kind,id FROM objects")) == {("page", "p1"), ("page", "p2"), ("data_source", "d1"), ("block", "b1"), ("block", "b2"), ("block", "nested"), *[("response_metadata", key) for key in ("search:all:", "query:d1:", "children:p1:", "children:p1:next", "children:p2:", "children:b1:")]}
     assert set(db.execute("SELECT id,reason FROM omissions")) == {("p1", "comments_not_accessible"), ("p2", "comments_not_accessible")}
     assert result["failed_tasks"] == 0 and result["model_calls"] == 0 and result["index_published"] is False
+    finished = dict(db.execute("SELECT key,value FROM metadata"))["finished_at"]
     calls = len(api.calls); collect(api, db); assert len(api.calls) == calls
+    assert dict(db.execute("SELECT key,value FROM metadata"))["finished_at"] == finished
     assert json.loads(db.execute("SELECT payload FROM objects WHERE id='nested'").fetchone()[0])["paragraph"]["rich_text"][0]["plain_text"] == "Nested text"
     db.close()
 
@@ -160,3 +162,19 @@ def test_interrupted_legacy_initialization_cannot_be_labeled_schema_two(tmp_path
     with pytest.raises(ValueError, match="start a new database"):
         open_store(path, {"workspace_id": "W"})
     assert path.read_bytes() == before
+
+
+def test_notion_retries_transient_read_failure_without_replaying_models(tmp_path, monkeypatch):
+    from company_context.collect_notion import Notion
+    token = tmp_path / "token"; token.write_text("synthetic-not-a-secret-token-value-123456789"); token.chmod(0o600)
+    calls = []
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(500 if len(calls) == 1 else 200, json={"object": "list", "results": []})
+    api = Notion(token); api.client.close()
+    api.client = httpx.Client(base_url="https://api.notion.com/v1/", transport=httpx.MockTransport(handler))
+    monkeypatch.setattr("company_context.collect_notion.time.sleep", lambda _: None)
+    try:
+        assert api.request("POST", "search", json={"page_size": 100})["results"] == []
+        assert calls == ["/v1/search", "/v1/search"]
+    finally: api.client.close()
