@@ -1,0 +1,18 @@
+{
+  "principal": "synthetic-reader",
+  "records": [
+    {
+      "source_id": "slack:synthetic-workspace:trial-review",
+      "source_type": "slack",
+      "url": "https://example.slack.com/archives/C001/p123",
+      "title": "Synthetic pilot review",
+      "author": "Example account owner",
+      "occurred_at": "2026-10-01T09:00:00+09:00",
+      "updated_at": null,
+      "collected_at": "2026-10-03T09:00:00+09:00",
+      "record_kind": "source",
+      "coverage": "One synthetic message; no customer data",
+      "text": "The customer completed the trial and declined to purchase. The account owner has not yet confirmed the customer's reason. The operator liked the export workflow, but the budget owner did not attend the review."
+    }
+  ]
+}

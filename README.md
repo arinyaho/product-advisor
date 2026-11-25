@@ -25,6 +25,12 @@ Example questions:
 
 The skill helps interpret evidence; the MCP server returns source passages rather than generating an answer. Customer facts come from the conversation or team records the assistant can access separately. Purchase rejection does not establish a price objection, and usage does not establish willingness to pay. A result from every book is not required.
 
+## Optional private company context
+
+The [company context service](company_context/README.md) runs a separate LightRAG snapshot and authenticated MCP on a company host. It returns original company passages and graph descriptions with handles for checking their sources. Company records and indices stay separate from the public book service; external model processing requires explicit operator configuration.
+
+The Product Advisor skill performs three roles: retrieve textbook evidence, reconstruct company context, and combine both to support a decision. The Claude Code [Product Manager agent](agents/product-manager.md) uses this integrated skill and calls both MCPs independently. The user owns the decision. Three standalone skills are not implemented. Only generic conceptual questions go to the book MCP.
+
 ## MCP tools
 
 | Tool | Behavior |
@@ -61,6 +67,16 @@ Use `book_id="book-a"`, `"book-b"`, or `"book-c"` to constrain retrieval. Follow
    ```
 
 3. Check that `claude mcp list` shows `plugin:product-advisor:product-advisor` as connected.
+
+For company context, register the company operator's SSH command separately at user scope:
+
+```sh
+claude mcp add --scope user --transport stdio company-context -- ssh -T -o BatchMode=yes <company-host> 'cd <service-root> && exec .venv/bin/python -m company_context.proxy --token-file <private-token-file>'
+```
+
+The token stays on the company host. Verify both servers with `claude mcp get company-context` and `claude mcp get plugin:product-advisor:product-advisor`, then start a fresh session with `claude --agent product-advisor:product-manager`. The agent preloads the integrated skill and has read tools for these two MCPs. Test `company_index_status` and `list_books` before relying on either source. The plugin does not automatically register a company endpoint or distribute its credentials. Configure the company service with the [operator guide](company_context/README.md).
+
+For local development before installing an updated plugin, copy `agents/product-manager.md` into `~/.claude/agents/product-manager.md` and use `claude --agent product-manager`. Keep the installed `product-advisor:product-advisor` skill current; a local agent copy does not update itself when the repository changes.
 
 ### Codex
 
