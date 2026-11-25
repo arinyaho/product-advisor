@@ -1,0 +1,15 @@
+[Unit]
+Description=Capture accessible company Notion pages and blocks
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/services/company-context
+UMask=0077
+ExecStart=%h/services/company-context/.venv/bin/python -m company_context.collect_notion --token-file %h/.local/share/company-context/notion-token --database %h/.local/share/company-context/notion-initial.sqlite --workspace-id REPLACE_WITH_AUTHORIZED_WORKSPACE_ID
+Restart=no
+StandardOutput=append:%h/.local/share/company-context/notion-initial.log
+StandardError=inherit
+
+[Install]
+WantedBy=default.target
