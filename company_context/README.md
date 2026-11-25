@@ -1,6 +1,6 @@
 # Company context service
 
-TL;DR: Run company source storage and LightRAG inside the company environment. The public book MCP remains separate. This service returns original company evidence, not generated business conclusions. The first deployment is a single-reader snapshot; it is not a company-wide authorization system.
+TL;DR: Run company source storage and LightRAG inside the company environment. A single-reader Slack pipeline captures accessible public/private channels, excludes DMs, preserves conversations, and publishes only validated graph snapshots. The public book MCP stays separate. Configure the reader, collection start, model budget and private file paths before enabling the hourly units. This is not a multi-user authorization system.
 
 ## Data boundary
 
@@ -9,7 +9,7 @@ TL;DR: Run company source storage and LightRAG inside the company environment. T
 - Model credentials and the MCP bearer token are read from files, never command arguments. The MCP token file must have mode `600`.
 - The server binds to loopback. Reach it through an authenticated company tunnel or an internal TLS proxy. Do not expose it publicly.
 - DNS checks reject public model destinations by default. Network egress controls must enforce the same policy; application DNS checks alone cannot prevent DNS rebinding.
-- A token grants access to the whole explicitly selected snapshot for its named reader. Original source permissions are not rechecked on each query. Do not share that token or aggregate different readers' material. Rebuild the snapshot after permission revocation or deletion, and retire the previous service and snapshot according to company retention policy.
+- A token grants access to the snapshot for its named reader. Do not share it or aggregate different readers' material. With `--access-state`, every evidence read checks the latest channel inventory; revoked access or an inventory older than two hours blocks retrieval. This is hourly ACL polling, not a source-provider check on each query. With `--sync-state`, a known source revision/removal blocks the old snapshot until its replacement is validated. Historical private artifacts remain on disk until an operator applies the company's retention policy; exclusion from retrieval is not erasure from backups or an external model provider.
 
 ## Source snapshot
 
@@ -22,13 +22,14 @@ The input is JSON with `principal` and `records`. Every record has `source_id`, 
 - `record_kind` is `source` or `summary`. Summaries also require `derived_from`, containing source URLs. Neither kind establishes that every assertion is true.
 - Optional `coverage` describes omitted comments, child pages, attachments or other uncollected material. Do not represent a selected excerpt as the entire source.
 - Credentials must be excluded before collection. Customer records, registrations, private evaluation questions and runtime files must not enter Git.
-- The pilot accepts 1–1,000 records, each at most 200,000 characters. New snapshot directories are required for changes; an existing directory is never overwritten. Failed builds retain their evidence and do not acquire a `ready.json` marker.
+- The memory bounds are 1–100,000 records, two million characters per source and 100 million characters per snapshot. Exceeding a bound fails the entire build rather than truncating coverage. New snapshot directories are required for changes; an existing directory is never overwritten. Failed builds retain their evidence and do not acquire a `ready.json` marker.
 
 ## Extraction and retrieval
 
 - LightRAG 1.5.7 uses its default extraction prompt, entity types and extraction limits. No reviewed ontology, customer schema or manual graph is injected.
-- Original text is split into 1,600-character passages with provenance attached. This is a baseline; a boundary may split a sentence. Retrieval quality must be measured before changing it.
-- Native custom-chunk insertion preserves document-scoped source identities. The completed build and serving startup both validate expected source content and identities after LightRAG's encoding normalization. The immutable snapshot retains original whitespace and HTML entities for exact source reads.
+- Imported legacy sources retain their 1,600-character chunks. New Slack captures group each thread separately; unthreaded channel messages form timeline windows separated by a 30-minute gap or UTC date boundary. Timeline proximity is not a claim of a common subject. Threads and timelines never mix, nor do different channels.
+- Slack chunks target 3,200 characters and end at message boundaries. A single oversized message is split at a paragraph/sentence boundary when one is available, otherwise at the hard character bound. Captured text and offsets reconstruct exactly; no LLM summary replaces the originals. Each included message retains its author ID, event/edit times and permalink. Later chunks include up to 1,600 characters of the original opening message as explicitly bounded context, plus `root_chunk_id` and previous/next handles. An opening message outside the capture interval is marked missing, never invented. These are character bounds, not claimed token counts or a measured retrieval optimum.
+- Native custom-chunk insertion preserves document-scoped source identities. Build completion and serving startup validate exact chunk identities/content, processed document status, and every graph reference against the authorized snapshot. Each release has a separate LightRAG workspace so in-process storage caches cannot cross releases. The immutable snapshot retains original whitespace and HTML entities for exact source reads.
 - `search_company_context(query, mode="mix", k=5)` accepts natural-language questions. `mix` and `naive` use the same source snapshot. Retrieval does not silently fall back and does not generate an answer.
 - Context version 3 adds `graph` descriptions to `mix` responses without reducing the original `results`. Entity and relationship descriptions alternate in native rank order within a separate 6,000-token budget. `graph_coverage` reports omitted and untraceable records; it is not completeness of the company corpus. Oversized descriptions are omitted intact, not cut into partial assertions. `naive` returns an empty graph.
 - Every graph record is marked model-derived. Its `sources[].read_source` arguments lead to exact originals through `get_company_source`, including passages outside the first `k` chunks. Source metadata retains actor, event/edit/collection times, summary attribution and coverage. Unresolved references are counted; records with no traceable original are excluded. Graph extraction timestamps are not substituted for source event times.
@@ -71,7 +72,25 @@ uv pip install --python .venv/bin/python pytest
 .venv/bin/python -m pytest company_context -q
 ```
 
-Synthetic tests exercise native LightRAG stores, original source membership, the actual HTTP MCP protocol, token rotation and provenance. They mock model responses and do not establish real semantic quality. Company-host model calls, four-opportunity retrieval, advisor decisions and the actual user connection require separate recorded acceptance. Source synchronization is a complete-snapshot import at this stage; unattended Slack/Docs/Jira/Notion synchronization is not implemented.
+Synthetic tests exercise native LightRAG stores, exact source membership, changes/removals in an isolated candidate, the actual HTTP MCP protocol, ACL expiry/revocation, token rotation, conversation boundaries and capture-to-publication orchestration. They mock model responses and do not establish real semantic quality. Company-host model calls, four-opportunity retrieval, advisor decisions and both clients' actual connections require separate recorded acceptance. Automatic synchronization covers Slack message text only; Docs/Jira/Notion remain static selected supplements. Files and linked documents are not downloaded by this collector.
+
+## Channel capture and hourly synchronization
+
+1. `collect_slack` enumerates `public_channel,private_channel`, validates API flags before reading bodies, and pins the authenticated reader/workspace. Public channels need not be joined; private channels require membership. It scans parent history to discover recent replies under older roots, stores only messages inside the frozen interval, paginates threads, and checkpoints SQLite pages and cursors transactionally. Raw storage is private on the company host. Recognizable credential-bearing messages are omitted; the regex is not a guarantee that all sensitive text is detected.
+2. Initial collection resumes the same frozen interval. A failed or incomplete channel prevents export. Coverage reports distinguish channels, complete/failed channels, messages and credential omissions. Collection does not call a model or publish a graph. Slack reads are not an atomic point-in-time snapshot: source mutations during pagination are reconciled in subsequent cycles.
+3. Subsequent cycles re-read parent history and compare each thread's reply count/latest-reply signature. Unchanged replies can be reused from the prior completed capture for at most 24 hours, after which they are fully re-read to detect edits that Slack does not expose in a change cursor. Deleted roots/replies disappear from the next complete capture. Revoked channels are separately blocked through the hourly access inventory. New captures do not copy unobserved old rows into the exported snapshot.
+4. Changed source content produces a new document identity. The candidate copies the previous completed index, removes superseded documents through LightRAG's native deletion/reconstruction, inserts changed/new sources, and verifies all graph references before publishing. Unchanged source collection provenance stays stable. First migration from the legacy pilot uses a fresh graph. Failed deletion, extraction, budget checks or acceptance leave the candidate unpublished; no automatic paid replay occurs.
+5. `sync` atomically switches `current`, restarts the loopback MCP service, and checks its reported snapshot and an exact source through authenticated MCP calls. The service must use `--directory /private/current --access-state /private/access.json --sync-state /private/sync.json`. A failed restart/acceptance requires operator repair; there is no automatic rollback to withdrawn evidence.
+6. The included user-systemd timers trigger hourly. A long-running job is not overlapped; hourly triggering does not promise one-hour end-to-end freshness. The ACL job runs independently, including during collection/indexing. The single append-only `sync-model-receipts.jsonl` spans all sync generations: the configured budget is cumulative, not reset hourly. Review retained failures before authorizing another paid attempt.
+
+Initial capture and standalone export:
+
+```sh
+.venv/bin/python -m company_context.collect_slack --token-file /private/slack-token --database /private/slack-initial.sqlite --since 2025-11-26T00:00:00+09:00 --until 2026-11-26T00:00:00+09:00
+.venv/bin/python -m company_context.slack_snapshot --database /private/slack-initial.sqlite --output /private/snapshot.json
+```
+
+Adapt `company_context/systemd/` to the actual host paths, frozen start date, bootstrap capture, optional static non-Slack supplement and approved cumulative model budget. Copy the service/timer files to the reader's `~/.config/systemd/user/`, run `systemctl --user daemon-reload`, perform one manual access refresh and sync check, then enable the two timers. Keep the active graph outside Git. No Slack message, source export, API credential, runtime ledger or customer evaluation belongs in this repository.
 
 ## Work-intent experiment
 

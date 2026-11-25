@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect channel conversations and publish a validated company index
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/services/company-context
+UMask=0077
+ExecStart=%h/services/company-context/.venv/bin/python -m company_context.sync sync --state-dir %h/.local/share/company-context --token-file %h/.local/share/company-context/slack-token --since 2025-11-26T00:00:00+09:00 --bootstrap-database %h/.local/share/company-context/slack-initial.sqlite --supplement %h/.local/share/company-context/static-supplement.json --config %h/.local/share/company-context/config.json --mcp-token-file %h/.local/share/company-context/mcp-token --budget-usd 50
+StandardOutput=append:%h/.local/share/company-context/sync.log
+StandardError=inherit
+TimeoutStartSec=infinity

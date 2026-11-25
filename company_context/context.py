@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import shutil
 from urllib.parse import urlsplit
 
 import httpx
@@ -78,12 +79,15 @@ class Corpus:
         if not isinstance(snapshot.get("principal"), str) or not snapshot["principal"].strip():
             raise ValueError("A snapshot must name its single authorized reader")
         rows = snapshot.get("records")
-        if not isinstance(rows, list) or not 1 <= len(rows) <= 1000:
-            raise ValueError("Provide 1..1000 explicitly selected source records")
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 100_000:
+            raise ValueError("Provide 1..100000 authorized source records")
+        if sum(len(r.get("text", "")) for r in rows if isinstance(r.get("text"), str)) > 100_000_000:
+            raise ValueError("Snapshot exceeds the 100 million character memory bound")
         self.snapshot = snapshot
         self.principal = snapshot["principal"]
         self.records, self.chunks, self.by_content = {}, {}, {}
         self.document_ids, self.native_chunks = {}, {}
+        self.source_chunks = {}
         for source in rows:
             for key in ("source_id", "source_type", "url", "title", "text"):
                 if not isinstance(source.get(key), str) or not source[key].strip():
@@ -96,8 +100,8 @@ class Corpus:
                 raise ValueError("Provide the author or an explicit null when unknown")
             source_url(source["url"])
             validate_slack_source(source)
-            if len(source["text"]) > 200_000 or any(len(source[k]) > 2048 for k in ("source_id", "url", "title")):
-                raise ValueError("Source exceeds pilot size limits")
+            if len(source["text"]) > 2_000_000 or any(len(source[k]) > 2048 for k in ("source_id", "url", "title")):
+                raise ValueError("Source exceeds snapshot size limits")
             timestamp(source["collected_at"])
             if "updated_at" not in source:
                 raise ValueError("Provide the edit timestamp or explicit null when unknown")
@@ -117,12 +121,26 @@ class Corpus:
                 raise ValueError("Duplicate source identity; choose one current revision per snapshot")
             self.records[identity] = source
             self.document_ids[identity] = "doc-" + digest(source)
-            for start in range(0, len(source["text"]), CHUNK_CHARACTERS):
-                end = min(start + CHUNK_CHARACTERS, len(source["text"]))
-                chunk = {key: value for key, value in source.items() if key != "text"}
+            self.source_chunks[identity] = []
+            if source.get("chunking") == "slack-messages-v1":
+                from company_context.slack_snapshot import chunk_ranges
+                ranges = chunk_ranges(source)
+            elif source.get("chunking") is None:
+                ranges = ((start, min(start + CHUNK_CHARACTERS, len(source["text"]))) for start in range(0, len(source["text"]), CHUNK_CHARACTERS))
+            else:
+                raise ValueError("Unknown source chunking version")
+            for start, end in ranges:
+                chunk = {key: value for key, value in source.items() if key not in ("text", "message_spans")}
                 chunk.update(start=start, end=end, text=source["text"][start:end])
+                if "message_spans" in source:
+                    chunk["messages"] = [m for m in source["message_spans"] if m["end"] > start and m["start"] < end]
+                    root = next((m for m in source["message_spans"] if m["ts"] == source.get("thread_ts")), None)
+                    if root and start >= root["end"]:
+                        stop = min(root["end"], root["start"] + 1600)
+                        chunk["root_context"] = {"text": source["text"][root["start"]:stop], "start": root["start"], "end": stop, "truncated": stop < root["end"], "url": root["url"]}
                 chunk["chunk_id"] = "source-" + digest(chunk)[:32]
                 self.chunks[chunk["chunk_id"]] = chunk
+                self.source_chunks[identity].append(chunk["chunk_id"])
                 rendered = sanitize_text_for_encoding(self.render(chunk))
                 self.by_content[rendered] = chunk
                 self.native_chunks[make_custom_chunk_id(self.document_ids[identity], rendered)] = chunk
@@ -137,12 +155,13 @@ class Corpus:
         if chunk_id not in self.chunks:
             raise ValueError("Unknown source chunk in this snapshot")
         chunk = self.chunks[chunk_id]
-        siblings = [key for key, value in self.chunks.items() if value["source_id"] == chunk["source_id"]]
+        siblings = self.source_chunks[chunk["source_id"]]
         position = siblings.index(chunk_id)
         return {
             "snapshot": self.version, "evidence_status": "recorded_statement_not_verified_fact", **chunk,
             "previous_chunk_id": siblings[position - 1] if position else None,
             "next_chunk_id": siblings[position + 1] if position + 1 < len(siblings) else None,
+            **({"root_chunk_id": siblings[0] if chunk.get("root_in_capture") else None} if "message_spans" in self.records[chunk["source_id"]] else {}),
         }
 
 
@@ -279,7 +298,7 @@ class Models:
         return await self.request("embedding", "/embeddings", {"model": self.config["embedding_model"], "input": texts})
 
 
-def engine(directory, models, *, building=False):
+def engine(directory, models, *, building=False, workspace=None):
     async def embed(texts):
         return await models.embed(texts)
 
@@ -289,7 +308,7 @@ def engine(directory, models, *, building=False):
         return await models.extract(*args, **kwargs)
 
     return LightRAG(
-        working_dir=str(directory), workspace="company-context",
+        working_dir=str(directory), workspace=workspace or "company-" + digest(str(Path(directory).resolve()))[:20],
         embedding_func=EmbeddingFunc(embedding_dim=models.config["dimensions"], max_token_size=8192, model_name=models.config["embedding_model"], func=embed),
         llm_model_func=extract, llm_model_name=models.config["chat_model"],
         llm_model_max_async=1, embedding_func_max_async=1, max_parallel_insert=1,
@@ -305,25 +324,54 @@ async def close_engine(rag):
     await rag.finalize_storages()
 
 
-def index_config(models):
-    return {"engine": ENGINE_VERSION, "prompts_sha256": digest({k: v for k, v in PROMPTS.items() if isinstance(v, (str, list))}), "chunk_characters": CHUNK_CHARACTERS, "models": {k: models.config[k] for k in ("chat_model", "embedding_model", "dimensions")}}
+def index_config(models, corpus=None):
+    config = {"engine": ENGINE_VERSION, "prompts_sha256": digest({k: v for k, v in PROMPTS.items() if isinstance(v, (str, list))}), "chunk_characters": CHUNK_CHARACTERS, "models": {k: models.config[k] for k in ("chat_model", "embedding_model", "dimensions")}}
+    if corpus and any(r.get("chunking") == "slack-messages-v1" for r in corpus.records.values()):
+        config["slack_chunking"] = {"version": 1, "target_characters": 3200, "root_context_characters": 1600}
+    return config
 
 
-async def build(snapshot, directory, models):
+async def build(snapshot, directory, models, previous=None):
     corpus = Corpus(snapshot)
     directory = Path(directory)
     directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     (directory / "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False))
-    rag = engine(directory / "index", models, building=True)
+    workspace = "company-" + digest(str((directory / "index").resolve()))[:20]
+    old = None
+    if previous:
+        previous = Path(previous)
+        old = Corpus(json.loads((previous / "snapshot.json").read_text()))
+        ready = json.loads((previous / "ready.json").read_text())
+        if old.principal != corpus.principal or ready["snapshot"] != old.version or ready["config"] != index_config(models, corpus):
+            raise ValueError("Incremental builds require the same reader and index configuration")
+        shutil.copytree(previous / "index", directory / "index")
+        (directory / "index" / ready.get("workspace", "company-context")).rename(directory / "index" / workspace)
+    rag = engine(directory / "index", models, building=True, workspace=workspace)
     await rag.initialize_storages()
     try:
-        for source_id, source in corpus.records.items():
-            chunks = [corpus.render(chunk) for chunk in corpus.chunks.values() if chunk["source_id"] == source_id]
+        if old:
+            await verify_chunks(old, rag)
+            for source_id, doc_id in old.document_ids.items():
+                if corpus.document_ids.get(source_id) != doc_id:
+                    result = await rag.adelete_by_doc_id(doc_id, delete_llm_cache=True)
+                    if result.status != "success":
+                        raise ValueError("Document removal failed; this candidate cannot be published")
+            removed = set(old.native_chunks) - set(corpus.native_chunks)
+            if any(row is not None for row in await rag.text_chunks.get_by_ids(list(removed))):
+                raise ValueError("Removed source chunks remain in the candidate index")
+        for position, (source_id, source) in enumerate(corpus.records.items(), 1):
+            if old and old.document_ids.get(source_id) == corpus.document_ids[source_id]:
+                continue
+            chunks = [corpus.render(corpus.chunks[key]) for key in corpus.source_chunks[source_id]]
             await rag.ainsert_custom_chunks(source["text"], chunks, doc_id=corpus.document_ids[source_id])
+            if getattr(models, "failed", False):
+                raise ValueError("Model processing failed; this candidate cannot be published")
+            progress = {"source_id_hash": digest(source_id), "completed_sources": position, "total_sources": len(corpus.records), "model_calls": models.calls}
+            (directory / "progress.json").write_text(json.dumps(progress))
         await verify_chunks(corpus, rag)
     finally:
         await close_engine(rag)
-    ready = {"snapshot": corpus.version, "principal": corpus.principal, "source_count": len(corpus.records), "chunk_count": len(corpus.chunks), "config": index_config(models), "model_calls": models.calls}
+    ready = {"snapshot": corpus.version, "principal": corpus.principal, "source_count": len(corpus.records), "chunk_count": len(corpus.chunks), "config": index_config(models, corpus), "model_calls": models.calls, "workspace": workspace}
     (directory / "ready.json").write_text(json.dumps(ready, ensure_ascii=False))
     return ready
 
@@ -332,9 +380,9 @@ async def open_index(directory, models):
     directory = Path(directory)
     ready = json.loads((directory / "ready.json").read_text())
     corpus = Corpus(json.loads((directory / "snapshot.json").read_text()))
-    if ready["snapshot"] != corpus.version or ready["config"] != index_config(models):
+    if ready["snapshot"] != corpus.version or ready["config"] != index_config(models, corpus):
         raise ValueError("Snapshot or model configuration differs from the completed build")
-    rag = engine(directory / "index", models)
+    rag = engine(directory / "index", models, workspace=ready.get("workspace", "company-context"))
     await rag.initialize_storages()
     try:
         await verify_chunks(corpus, rag)
@@ -351,6 +399,15 @@ async def verify_chunks(corpus, rag):
     stored = await rag.text_chunks.get_by_ids(identities)
     if len(stored) != len(expected) or any(row is None or row["content"] != original for row, original in zip(stored, expected, strict=True)):
         raise ValueError("Indexed source identities or exact source bodies differ")
+    for identity in corpus.document_ids.values():
+        status = await rag.doc_status.get_by_id(identity)
+        if not status or status.get("status") != "processed":
+            raise ValueError("Source extraction did not complete successfully")
+    for rows in (await rag.chunk_entity_relation_graph.get_all_nodes(), await rag.chunk_entity_relation_graph.get_all_edges()):
+        for row in rows:
+            sources = set(row.get("source_id", "").split("<SEP>")) - {""}
+            if not sources or not sources <= corpus.native_chunks.keys():
+                raise ValueError("Graph contains missing or withdrawn source references")
 
 
 def graph_context(corpus, data, tokenizer, budget=6000):

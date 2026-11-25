@@ -1,0 +1,10 @@
+[Unit]
+Description=Revalidate the authorized reader's channel access
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/services/company-context
+UMask=0077
+ExecStart=%h/services/company-context/.venv/bin/python -m company_context.sync access --state-dir %h/.local/share/company-context --token-file %h/.local/share/company-context/slack-token
+StandardOutput=append:%h/.local/share/company-context/access.log
+StandardError=inherit
