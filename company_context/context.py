@@ -49,11 +49,11 @@ def source_url(value):
 
 def slack_channel_id(url):
     parsed = urlsplit(url)
-    parts = parsed.path.split("/")
     host = (parsed.hostname or "").rstrip(".")
     if host == "slack.com" or host.endswith(".slack.com"):
-        if len(parts) > 2 and parts[1] == "archives" and re.fullmatch(r"[CGD][A-Z0-9]+", parts[2]):
-            return parts[2]
+        archive = re.fullmatch(r"/archives/([CGD][A-Z0-9]+)/p[0-9]+", parsed.path)
+        if archive:
+            return archive[1]
         raise ValueError("Slack provenance requires a canonical channel archive link")
     return None
 
@@ -374,13 +374,13 @@ async def build(snapshot, directory, models, previous=None):
     old = None
     if previous:
         previous = Path(previous)
-        prior = Corpus(json.loads((previous / "snapshot.json").read_text()))
+        prior = json.loads((previous / "snapshot.json").read_text())
         ready = json.loads((previous / "ready.json").read_text())
-        if prior.principal != corpus.principal or ready["snapshot"] != prior.version:
+        if prior["principal"] != corpus.principal or ready["snapshot"] != digest(prior):
             raise ValueError("Incremental builds require the same reader and a matching snapshot")
         # Native deletion can re-summarize another withdrawn document before its deletion.
-        if ready["config"] == index_config(models, corpus) and all(corpus.document_ids.get(key) == doc for key, doc in prior.document_ids.items()):
-            old = prior
+        if ready["config"] == index_config(models, corpus) and all(corpus.document_ids.get(row["source_id"]) == "doc-" + digest(row) for row in prior["records"]):
+            old = Corpus(prior)
             shutil.copytree(previous / "index", directory / "index")
             (directory / "index" / ready.get("workspace", "company-context")).rename(directory / "index" / workspace)
     rag = engine(directory / "index", models, building=True, workspace=workspace)

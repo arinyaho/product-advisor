@@ -358,3 +358,51 @@ def test_completed_bootstrap_can_retire_revoked_channels_without_mutating_archiv
     import sqlite3
     with sqlite3.connect(args.bootstrap_database) as db:
         assert set(db.execute("SELECT ts FROM messages")) == {("12",)}
+
+
+@pytest.mark.parametrize("suffix", ["/../G002/p1", "/%2e%2e/G002/p1", "/p1/../../G002/p1"])
+def test_slack_archive_path_cannot_authorize_a_different_destination(suffix):
+    row = record(source_type="docs", url="https://docs.example.com/page", record_kind="summary", derived_from=["https://workspace.slack.com/archives/C001" + suffix])
+    with pytest.raises(ValueError, match="Slack"):
+        Corpus({"principal": "reader", "records": [row]})
+
+
+def test_legacy_dependency_does_not_prevent_clean_replacement(tmp_path):
+    async def run():
+        original = tmp_path / "original"; original.mkdir()
+        old = {"principal": "reader", "records": [record(source_type="docs", url="https://docs.example.com/page", record_kind="summary", derived_from=["https://app.slack.com/client/T1/G002"])]}
+        (original / "snapshot.json").write_text(json.dumps(old))
+        (original / "ready.json").write_text(json.dumps({"snapshot": digest(old), "config": {}}))
+        models = SyntheticModels()
+        ready = await build({"principal": "reader", "records": []}, tmp_path / "clean", models, original)
+        assert ready["source_count"] == 0 and models.calls == 0
+    asyncio.run(run())
+
+
+def test_bootstrap_retry_retains_its_own_frozen_start(tmp_path, monkeypatch):
+    args = setup_sync(tmp_path, monkeypatch)
+    args.since = datetime.fromtimestamp(11, timezone.utc)
+    collect = sync.collect
+    monkeypatch.setattr(sync, "collect", lambda *a, **kw: False)
+    with pytest.raises(ValueError, match="revalidation is incomplete"):
+        asyncio.run(sync.synchronize(args))
+    monkeypatch.setattr(sync, "collect", collect)
+    models = SyntheticModels(); models.cost = 0
+    monkeypatch.setattr(sync, "Models", lambda *a, **kw: models)
+    async def stop(*a): raise RuntimeError("retry reached build")
+    monkeypatch.setattr(sync, "build", stop)
+    with pytest.raises(RuntimeError, match="retry reached build"):
+        asyncio.run(sync.synchronize(args))
+
+
+def test_completed_bootstrap_schema_is_not_migrated_in_place(tmp_path, monkeypatch):
+    import sqlite3
+    args = setup_sync(tmp_path, monkeypatch)
+    with sqlite3.connect(args.bootstrap_database) as db:
+        db.execute("ALTER TABLE threads DROP COLUMN revision")
+        db.execute("ALTER TABLE threads DROP COLUMN audited_at")
+    before = args.bootstrap_database.read_bytes()
+    monkeypatch.setattr(sync, "collect", lambda *a, **kw: False)
+    with pytest.raises(ValueError, match="revalidation is incomplete"):
+        asyncio.run(sync.synchronize(args))
+    assert args.bootstrap_database.read_bytes() == before

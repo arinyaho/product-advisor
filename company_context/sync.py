@@ -149,8 +149,6 @@ async def synchronize(args):
         if not state.get("last_database") and not state.get("pending_database") and bootstrap:
             state.update(phase="initial_collection", initial_database=str(bootstrap))
             write_json(state_path, state)
-            with sqlite3.connect(f"file:{bootstrap}?mode=ro", uri=True) as db:
-                meta = dict(db.execute("SELECT key,value FROM metadata"))
             with bootstrap.with_suffix(".lock").open("a") as initial_lock:
                 try:
                     fcntl.flock(initial_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -158,16 +156,19 @@ async def synchronize(args):
                     print(json.dumps({"phase": "waiting_for_initial_capture"}))
                     return
                 # Resume an interrupted bootstrap; never compete with its original collector.
-                db = open_store(bootstrap, float(meta["since"]), float(meta["until"]))
-                try:
-                    if not meta.get("completed_at") and not collect(api, db, float(meta["since"]), float(meta["until"])):
-                        raise ValueError("Initial capture is incomplete; no candidate was built")
-                finally:
-                    db.close()
-            # Preserve the completed archive while revalidating its current channel scope.
-            database = root / ("capture-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f") + ".sqlite")
-            with sqlite3.connect(f"file:{bootstrap}?mode=ro", uri=True) as source, sqlite3.connect(database) as copy:
-                source.backup(copy)
+                with sqlite3.connect(f"file:{bootstrap}?mode=ro", uri=True) as db:
+                    meta = dict(db.execute("SELECT key,value FROM metadata"))
+                if not meta.get("completed_at"):
+                    db = open_store(bootstrap, float(meta["since"]), float(meta["until"]))
+                    try:
+                        if not collect(api, db, float(meta["since"]), float(meta["until"])):
+                            raise ValueError("Initial capture is incomplete; no candidate was built")
+                    finally:
+                        db.close()
+                # Preserve the completed archive while revalidating its current channel scope.
+                database = root / ("capture-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f") + ".sqlite")
+                with sqlite3.connect(f"file:{bootstrap}?mode=ro", uri=True) as source, sqlite3.connect(database) as copy:
+                    source.backup(copy)
             state.update(phase="collecting", pending_database=str(database), pending_until=float(meta["until"]))
             write_json(state_path, state)
             db = open_store(database, float(meta["since"]), float(meta["until"]))
@@ -180,12 +181,17 @@ async def synchronize(args):
             pending = state.get("pending_database")
             database = Path(pending) if pending else root / ("capture-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f") + ".sqlite")
             until = state["pending_until"] if pending else datetime.now(timezone.utc).timestamp()
+            since = args.since.timestamp()
+            if pending and database.exists():
+                with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as saved:
+                    bounds = dict(saved.execute("SELECT key,value FROM metadata"))
+                since, until = float(bounds["since"]), float(bounds["until"])
             state.update(phase="collecting", pending_database=str(database), pending_until=until)
             write_json(state_path, state)
-            db = open_store(database, args.since.timestamp(), until)
+            db = open_store(database, since, until)
             prior = sqlite3.connect(f"file:{state['last_database']}?mode=ro", uri=True) if state.get("last_database") else None
             try:
-                if not collect(api, db, args.since.timestamp(), until, prior):
+                if not collect(api, db, since, until, prior):
                     raise ValueError("Capture is incomplete; no candidate was built")
             finally:
                 db.close()
