@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import multiprocessing
 import os
 import sys
 from types import SimpleNamespace
@@ -90,6 +91,56 @@ def test_existing_receipts_and_new_reservations_restore_once_per_call(tmp_path):
     restored = Models(provider.config, receipts=provider.receipts)
     assert restored.calls == 3 and restored.cost == pytest.approx(.13)
     assert restored.failed
+
+
+def test_second_ledger_writer_cannot_dispatch_over_an_unfinished_reservation(tmp_path):
+    first = model(tmp_path)
+    second = Models(first.config, receipts=first.receipts, max_calls=1)
+    pending = first.reserve("synthetic", "/chat/completions", .1)
+    with pytest.raises(RuntimeError, match="no automatic replay"):
+        second.reserve("synthetic", "/chat/completions", .1)
+    restored = Models(first.config, receipts=first.receipts)
+    assert restored.calls == 1 and restored.failed
+    assert restored.cost == pytest.approx(.1)
+    first.record_receipt({**pending, "status": "completed"})
+    limited = Models(first.config, receipts=first.receipts, max_calls=1)
+    with pytest.raises(RuntimeError, match="no automatic replay"):
+        limited.reserve("synthetic", "/chat/completions", .1)
+    resumed = Models(first.config, receipts=first.receipts)
+    next_call = resumed.reserve("synthetic", "/chat/completions", .1)
+    assert next_call["call"] == 2
+
+
+def reserve_in_process(config, receipts, barrier, results):
+    provider = Models(config, receipts=receipts, max_calls=1)
+    barrier.wait(timeout=10)
+    try:
+        receipt = provider.reserve("synthetic", "/chat/completions", .1)
+        results.put(("reserved", receipt["call"]))
+    except RuntimeError:
+        results.put(("blocked", None))
+
+
+def test_concurrent_processes_share_one_reservation_budget(tmp_path):
+    provider = model(tmp_path)
+    workers = multiprocessing.get_context("spawn")
+    barrier, results = workers.Barrier(2), workers.Queue()
+    processes = [workers.Process(target=reserve_in_process, args=(provider.config, provider.receipts, barrier, results)) for _ in range(2)]
+    try:
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=15)
+            assert process.exitcode == 0
+        assert {results.get(timeout=2), results.get(timeout=2)} == {("reserved", 1), ("blocked", None)}
+        restored = Models(provider.config, receipts=provider.receipts)
+        assert restored.calls == 1 and restored.failed and restored.cost == pytest.approx(.1)
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join()
+        results.close()
 
 
 def test_evaluation_evidence_is_private_even_with_permissive_umask(tmp_path, monkeypatch):

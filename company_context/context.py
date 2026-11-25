@@ -1,7 +1,9 @@
 """Source-preserving snapshots and native LightRAG retrieval for an internal service."""
 
 import asyncio
+from contextlib import contextmanager
 from datetime import datetime
+import fcntl
 import hashlib
 import ipaddress
 import itertools
@@ -140,34 +142,58 @@ class Models:
             raise ValueError("Set the actual embedding model dimension")
         self.calls, self.max_calls, self.failed = 0, max_calls, False
         self.cost, self.budget = 0.0, budget
+        self.active_calls = set()
         self.receipts = Path(receipts) if receipts else None
         if self.receipts and self.receipts.exists():
-            previous = [json.loads(line) for line in self.receipts.read_text().splitlines()]
-            latest = {row["call"]: row for row in previous}
-            self.calls = max(latest, default=0)
-            self.cost = sum(row["charged_or_estimated_usd"] for row in latest.values())
-            self.failed = any(row["status"] != "completed" for row in latest.values())
+            with self.ledger() as stream:
+                self.restore_receipts(stream)
+
+    @contextmanager
+    def ledger(self):
+        if not self.receipts:
+            yield None
+            return
+        try:
+            fd = os.open(self.receipts, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a+") as stream:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+                yield stream
+        except OSError:
+            self.failed = True
+            raise
+
+    def restore_receipts(self, stream):
+        if stream is None:
+            return
+        stream.seek(0)
+        latest = {row["call"]: row for row in (json.loads(line) for line in stream)}
+        self.calls = max(latest, default=0)
+        self.cost = sum(row["charged_or_estimated_usd"] for row in latest.values())
+        self.failed = self.failed or any(row["status"] != "completed" and not (row["status"] == "pending_cost_unknown" and row["call"] in self.active_calls) for row in latest.values())
+
+    @staticmethod
+    def append_receipt(stream, receipt):
+        if stream is not None:
+            stream.write(json.dumps(receipt) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
 
     def record_receipt(self, receipt):
-        if self.receipts:
-            try:
-                fd = os.open(self.receipts, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-                with os.fdopen(fd, "a") as stream:
-                    stream.write(json.dumps(receipt) + "\n")
-                    stream.flush()
-                    os.fsync(stream.fileno())
-            except OSError:
-                self.failed = True
-                raise
+        with self.ledger() as stream:
+            self.append_receipt(stream, receipt)
+        self.active_calls.discard(receipt["call"])
 
     def reserve(self, model, endpoint, amount):
-        if self.failed or self.calls >= self.max_calls or self.cost + amount > self.budget:
-            raise RuntimeError("Model call limit reached or a previous request failed; no automatic replay")
-        self.calls += 1
-        self.cost += amount
-        receipt = {"call": self.calls, "model": model, "endpoint": endpoint, "status": "pending_cost_unknown", "charged_or_estimated_usd": amount}
-        # Persist before dispatch so a terminated process cannot forget an in-flight charge.
-        self.record_receipt(receipt)
+        with self.ledger() as stream:
+            self.restore_receipts(stream)
+            if self.failed or self.calls >= self.max_calls or self.cost + amount > self.budget:
+                raise RuntimeError("Model call limit reached or a previous request failed; no automatic replay")
+            self.calls += 1
+            self.cost += amount
+            receipt = {"call": self.calls, "model": model, "endpoint": endpoint, "status": "pending_cost_unknown", "charged_or_estimated_usd": amount}
+            # Reserve under the ledger lock before dispatch; another process cannot reuse the ID.
+            self.append_receipt(stream, receipt)
+            self.active_calls.add(self.calls)
         return receipt
 
     async def request(self, kind, endpoint, payload):
