@@ -329,7 +329,7 @@ def test_preflight_cleanup_waits_for_inventory_scan_lock(tmp_path, monkeypatch):
     locked = []
     original = fcntl.flock
     def lock(fd, operation):
-        assert os.fstat(fd.fileno()).st_ino == (tmp_path/'document-access.lock').stat().st_ino
+        assert os.fstat(fd).st_ino == (tmp_path/'document-access.lock').stat().st_ino
         assert preflight.exists()
         locked.append(operation)
         return original(fd, operation)
