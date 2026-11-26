@@ -355,8 +355,7 @@ class Models:
                             value = metadata.get(field)
                             if isinstance(value, str) and value in allowed:
                                 diagnostics[field] = value
-                        code = metadata.get("provider_code")
-                        if (isinstance(code, str) and code.strip()) or (type(code) is int and 100 <= code <= 599):
+                        if "provider_code" in metadata:
                             diagnostics["provider_code_present"] = True
                     if diagnostics:
                         receipt["failure_metadata"] = diagnostics

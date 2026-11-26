@@ -135,8 +135,8 @@ def test_http_error_retains_only_safe_diagnostics_and_still_stops_replay(monkeyp
     assert calls == [True]
 
 
-@pytest.mark.parametrize("body", [b"not json", b"[]", b'{"error": null}', b'{"error": {"metadata": []}}', b'{"error": {"metadata": {"error_type": ["private"], "limit_source": "private-limit", "reason": "private-reason", "provider_code": {"private": true}}}}'])
-def test_malformed_error_diagnostics_do_not_mask_failure_or_leak(monkeypatch, tmp_path, body):
+@pytest.mark.parametrize("body, expected", [(b"not json", {}), (b"[]", {}), (b'{"error": null}', {}), (b'{"error": {"metadata": []}}', {}), (b'{"error": {"metadata": {"provider_code": 42}}}', {"provider_code_present": True}), (b'{"error": {"metadata": {"error_type": ["private"], "limit_source": "private-limit", "reason": "private-reason", "provider_code": {"private": true}}}}', {"provider_code_present": True})])
+def test_malformed_error_diagnostics_do_not_mask_failure_or_leak(monkeypatch, tmp_path, body, expected):
     async def post(self, url, **kwargs):
         return httpx.Response(429, request=httpx.Request("POST", url), headers={"Retry-After": "private-header", "X-RateLimit-Limit": "9" * 100, "X-RateLimit-Remaining": "-1", "X-RateLimit-Reset": "NaN"}, content=body)
 
@@ -147,5 +147,5 @@ def test_malformed_error_diagnostics_do_not_mask_failure_or_leak(monkeypatch, tm
     row = json.loads(provider.receipts.read_text().splitlines()[-1])
     assert row["status"] == "failed_cost_unknown" and row["error_type"] == "HTTPStatusError"
     assert row["charged_or_estimated_usd"] == .1
-    assert "failure_metadata" not in row
+    assert row.get("failure_metadata", {}) == expected
     assert "private" not in provider.receipts.read_text()
