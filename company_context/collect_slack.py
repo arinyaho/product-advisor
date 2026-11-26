@@ -85,6 +85,8 @@ def open_store(path, since, until):
         raise ValueError("Resume with the same frozen collection interval")
     with db:
         db.executemany("INSERT OR IGNORE INTO metadata VALUES (?, ?)", expected.items())
+        if not existing:
+            db.execute("INSERT INTO metadata VALUES ('capture_started_at', ?)", (datetime.now(timezone.utc).isoformat(),))
     return db
 
 

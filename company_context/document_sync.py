@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from company_context.collect_slack import Slack
 from company_context.context import Corpus, digest, timestamp
 from company_context.document_sources import IncompleteCapture, export_capture, merge_records, refresh_document_access
-from company_context.sync import publish_snapshot, refresh_access, require_access, withdraw_changed, write_json
+from company_context.sync import publish_snapshot, refresh_access, reported_coverage, require_access, withdraw_changed, write_json
 
 
 def snapshots_in_use(root):
@@ -38,7 +38,8 @@ async def synchronize(root, settings):
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
     if state.get("phase") in ("building", "build_failed"):
         raise ValueError("An unfinished paid build requires operator review; no automatic replay")
-    snapshot = {"principal": settings["principal"], "records": list(old["records"]), "collection": dict(old.get("collection", {}))}
+    verified_collection = reported_coverage(old, digest(old), state_path)
+    snapshot = {"principal": settings["principal"], "records": list(old["records"]), "collection": dict(verified_collection) if isinstance(verified_collection, dict) else {}}
     coverage = dict(snapshot["collection"].get("managed_sources", {}))
     imports = dict(state.get("document_imports", {}))
     status = {}

@@ -12,8 +12,8 @@ import subprocess
 import tempfile
 
 from company_context.collect_slack import Slack, collect, inventory, open_store
-from company_context.context import Corpus, Models, build, close_engine, open_index, slack_channel_id, digest, index_config
-from company_context.slack_snapshot import export_snapshot
+from company_context.context import Corpus, Models, build, close_engine, open_index, slack_channel_id, digest, index_config, timestamp
+from company_context.slack_snapshot import capture_epoch, export_snapshot
 
 
 def write_json(path, value):
@@ -37,10 +37,14 @@ def refresh_access(api, path):
         if auth.get("bot_id") or not auth.get("user_id") or not auth.get("team_id"):
             raise ValueError("Slack must confirm a named human reader and workspace")
         identity = f"slack:{auth['team_id']}:{auth['user_id']}"
-        if path.exists() and json.loads(path.read_text())["principal"] != identity:
+        previous = json.loads(path.read_text()) if path.exists() else {}
+        if previous and previous["principal"] != identity:
             raise ValueError("Refusing to replace another reader's access inventory")
         channels = inventory(api)
-        result = {"principal": identity, "checked_at": checked_at, "channel_ids": sorted(channels)}
+        revoked = dict(previous.get("revoked_channels", {}))
+        for channel in set(previous.get("channel_ids", [])) - set(channels):
+            revoked[channel] = checked_at
+        result = {"principal": identity, "checked_at": checked_at, "channel_ids": sorted(channels), "revoked_channels": revoked}
         write_json(path, result)
         return result
 
@@ -58,6 +62,12 @@ def availability(corpus, access_path=None, sync_path=None):
             channels = {slack_channel_id(u) for r in corpus.records.values() for u in [r["url"], *r.get("derived_from", [])]} - {None}
             if not channels <= set(access["channel_ids"]):
                 return "blocked_channel_access_changed"
+            coverage = reported_coverage(corpus.snapshot, corpus.version, sync_path)
+            for row in corpus.records.values():
+                epoch = coverage.get("slack_capture_started_at", row["collected_at"]) if row["source_type"] == "slack" and isinstance(coverage, dict) else row["collected_at"]
+                dependencies = {slack_channel_id(url) for url in [row["url"], *row.get("derived_from", [])]} - {None}
+                if any(channel in access.get("revoked_channels", {}) and timestamp(access["revoked_channels"][channel]) >= timestamp(epoch) for channel in dependencies):
+                    return "blocked_observed_channel_revocation"
         if any("provider_scope" in r for r in corpus.records.values()):
             if not access_path:
                 return "blocked_document_access_missing"
@@ -120,6 +130,17 @@ def accept_mcp(client, corpus):
         original = rpc(client, "tools/call", {"name": "get_company_source", "arguments": {"chunk_id": handle}})
         if original != corpus.read(handle):
             raise ValueError("MCP returned a different source")
+
+
+def reported_coverage(snapshot, version, state_path):
+    if state_path and Path(state_path).exists():
+        try:
+            state = json.loads(Path(state_path).read_text())
+            if state.get("coverage_snapshot") == version and isinstance(state.get("verified_collection"), dict):
+                return state["verified_collection"]
+        except (OSError, ValueError):
+            pass
+    return snapshot.get("collection", "explicit_snapshot_not_all_company_knowledge")
 
 
 def progress(state_path):
@@ -229,6 +250,7 @@ async def publish_snapshot(args, snapshot, state, previous, refresh, updates):
 async def synchronize(args):
     root = args.state_dir
     policy_path = root / "document-sources.json"
+    policy = {}
     if args.command == "sync" and policy_path.exists():
         policy = json.loads(policy_path.read_text())
         args.budget_usd = policy["budget_usd"]
@@ -247,7 +269,9 @@ async def synchronize(args):
         previous = current.resolve() if current.is_symlink() else None
         previous_snapshot = json.loads((previous / "snapshot.json").read_text()) if previous else None
         bootstrap = args.bootstrap_database
-        if not state.get("last_database") and not state.get("pending_database") and bootstrap:
+        if state.get("slack_batch_database"):
+            database = Path(state["slack_batch_database"])
+        elif not state.get("last_database") and not state.get("pending_database") and bootstrap:
             state.update(phase="initial_collection", initial_database=str(bootstrap))
             write_json(state_path, state)
             with bootstrap.with_suffix(".lock").open("a") as initial_lock:
@@ -287,10 +311,16 @@ async def synchronize(args):
                 with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as saved:
                     bounds = dict(saved.execute("SELECT key,value FROM metadata"))
                 since, until = float(bounds["since"]), float(bounds["until"])
+                if any(timestamp(value) >= timestamp(capture_epoch(bounds)) for value in access.get("revoked_channels", {}).values()):
+                    database = root / ("capture-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f") + ".sqlite")
             state.update(phase="collecting", pending_database=str(database), pending_until=until)
             write_json(state_path, state)
             db = open_store(database, since, until)
             prior = sqlite3.connect(f"file:{state['last_database']}?mode=ro", uri=True) if state.get("last_database") else None
+            if prior:
+                prior_time = timestamp(capture_epoch(dict(prior.execute("SELECT key,value FROM metadata"))))
+                if any(timestamp(value) >= prior_time for value in access.get("revoked_channels", {}).values()):
+                    prior.close(); prior = None
             try:
                 if not collect(api, db, since, until, prior):
                     raise ValueError("Capture is incomplete; no candidate was built")
@@ -301,7 +331,16 @@ async def synchronize(args):
         # Check ACL again after the potentially long capture, before any model request.
         access = refresh_access(api, root / "access.json")
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as db:
-            snapshot = export_snapshot(db, previous_snapshot)
+            if state.get("slack_batch_database"):
+                captured_channels = {row[0] for row in db.execute("SELECT id FROM channels")}
+                captured_at = timestamp(capture_epoch(dict(db.execute("SELECT key,value FROM metadata"))))
+                observed_revocations = {channel for channel, revoked_at in access.get("revoked_channels", {}).items() if timestamp(revoked_at) >= captured_at}
+                excluded = set(state.get("slack_batch_excluded_channels", [])) | (captured_channels - set(access["channel_ids"])) | (captured_channels & observed_revocations)
+                state["slack_batch_excluded_channels"] = sorted(excluded)
+                write_json(state_path, state)
+                snapshot = export_snapshot(db, previous_snapshot, allowed_channels=set(access["channel_ids"]) - excluded)
+            else:
+                snapshot = export_snapshot(db, previous_snapshot)
         if snapshot["principal"] != access["principal"]:
             raise ValueError("Reader or channel access changed during capture")
         withdraw_changed(previous_snapshot, snapshot, state, state_path, slack_only=True)
@@ -326,14 +365,34 @@ async def synchronize(args):
                 snapshot["records"] = merge_records(snapshot["records"], [r for r in managed if r["provider_scope"]["provider"] == provider], provider)
             snapshot["collection"]["managed_sources"] = previous_snapshot.get("collection", {}).get("managed_sources", {})
         withdraw_changed(previous_snapshot, snapshot, state, state_path)
+        limit = policy.get("slack_batch_sources", 100)
+        capacity = policy.get("slack_batch_characters", 500_000)
+        if type(limit) is not int or limit < 1 or type(capacity) is not int or capacity < 1:
+            raise ValueError("Positive Slack source count and character capacity required")
+        previous_rows = {r["source_id"]: r for r in (previous_snapshot or {}).get("records", [])}
+        slack_rows = [r for r in snapshot["records"] if r["source_type"] == "slack"]
+        retained = [r for r in slack_rows if previous_rows.get(r["source_id"]) == r]
+        def activity(row):
+            dates = [row.get("updated_at"), row.get("occurred_at"), (row.get("message_spans") or [{}])[-1].get("occurred_at")]
+            return max((timestamp(value) for value in dates if value), default=timestamp(row["collected_at"])), row["source_id"]
+        pending = sorted([r for r in slack_rows if previous_rows.get(r["source_id"]) != r], key=activity, reverse=True)
+        selected = []
+        for row in pending:
+            if len(selected) >= limit: break
+            if selected and len(row["text"]) > capacity: continue
+            selected.append(row); capacity -= len(row["text"])
+        snapshot["records"] = [r for r in snapshot["records"] if r["source_type"] != "slack"] + retained + selected
+        complete = len(retained) + len(selected) == len(slack_rows)
+        snapshot["collection"]["slack_indexing"] = {"available_sources": len(slack_rows), "indexed_sources": len(retained) + len(selected), "complete": complete}
+        updates = {"last_database": str(database), "slack_batch_database": None if complete else str(database), "slack_batch_excluded_channels": [] if complete else state.get("slack_batch_excluded_channels", [])}
         corpus = Corpus(snapshot)
         require_access(corpus, root / "access.json")
         if previous_snapshot and sorted(previous_snapshot["records"], key=lambda r: r["source_id"]) == sorted(snapshot["records"], key=lambda r: r["source_id"]):
-            state.update(phase="unchanged", last_database=str(database), last_collected_at=snapshot["collection"]["completed_at"])
+            state.update(phase="unchanged", last_collected_at=snapshot["collection"]["completed_at"], coverage_snapshot=digest(previous_snapshot), verified_collection=snapshot["collection"], **updates)
             state.pop("pending_database", None); state.pop("pending_until", None)
             write_json(state_path, state)
             return
-        await publish_snapshot(args, snapshot, state, previous, lambda: refresh_access(api, root / "access.json"), {"last_database": str(database)})
+        await publish_snapshot(args, snapshot, state, previous, lambda: refresh_access(api, root / "access.json"), updates)
     finally:
         api.client.close()
 

@@ -40,9 +40,9 @@ def create_app(corpus, rag, token_file, access_state=None, sync_state=None):
     @mcp.tool()
     def company_index_status() -> dict:
         """Check snapshot identity, reader scope and coverage before using company evidence."""
-        from company_context.sync import progress
+        from company_context.sync import progress, reported_coverage
         collected = [r["collected_at"] for r in corpus.records.values()]
-        return {"snapshot": corpus.version, "principal": corpus.principal, "source_count": len(corpus.records), "source_types": sorted({r["source_type"] for r in corpus.records.values()}), "collected_from": min(collected, key=timestamp, default=None), "collected_through": max(collected, key=timestamp, default=None), "coverage": corpus.snapshot.get("collection", "explicit_snapshot_not_all_company_knowledge"), "availability": current_availability(), "ingestion": progress(sync_state), "context_version": 3, "graph_descriptions": True, "applicability": "caller_reviews_original_sources_not_automatically_resolved"}
+        return {"snapshot": corpus.version, "principal": corpus.principal, "source_count": len(corpus.records), "source_types": sorted({r["source_type"] for r in corpus.records.values()}), "collected_from": min(collected, key=timestamp, default=None), "collected_through": max(collected, key=timestamp, default=None), "coverage": reported_coverage(corpus.snapshot, corpus.version, sync_state), "availability": current_availability(), "ingestion": progress(sync_state), "context_version": 3, "graph_descriptions": True, "applicability": "caller_reviews_original_sources_not_automatically_resolved"}
 
     @mcp.tool()
     async def search_company_context(query: str, mode: str = "mix", k: int = 5) -> dict:
