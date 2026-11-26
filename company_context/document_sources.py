@@ -171,6 +171,8 @@ def refresh_document_access(root, settings, snapshots):
     root = Path(root)
     with (root / "document-access.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        from company_context.document_sync import snapshots_in_use
+        snapshots = [*snapshots, *snapshots_in_use(root)]
         path = root / "document-access.json"
         result = json.loads(path.read_text()) if path.exists() else {"principal": settings["principal"], "providers": {}}
         if result["principal"] != settings["principal"]: raise ValueError("Document access inventory belongs to another reader")

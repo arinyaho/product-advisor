@@ -19,6 +19,8 @@ def snapshots_in_use(root):
     result = []
     current = root / "current" / "snapshot.json"
     if current.exists(): result.append(json.loads(current.read_text()))
+    preflight = root / "document-preflight.json"
+    if preflight.exists(): result.append(json.loads(preflight.read_text()))
     state_path = root / "sync.json"
     if state_path.exists():
         state = json.loads(state_path.read_text())
@@ -29,6 +31,13 @@ def snapshots_in_use(root):
 
 
 async def synchronize(root, settings):
+    try:
+        return await _synchronize(root, settings)
+    finally:
+        (root / "document-preflight.json").unlink(missing_ok=True)
+
+
+async def _synchronize(root, settings):
     current = root / "current"
     previous = current.resolve() if current.is_symlink() else None
     old = json.loads((previous / "snapshot.json").read_text()) if previous else {"principal": settings["principal"], "records": []}
@@ -86,9 +95,9 @@ async def synchronize(root, settings):
         else: imports.pop(provider, None)
         changed = True
     write_json(root / "document-ingestion.json", status)
-    if not changed:
-        return
     withdraw_changed(old if previous else None, snapshot, state, state_path)
+    # Independent ACL scans must see candidate scopes before the paid build exists.
+    write_json(root / "document-preflight.json", snapshot)
     refresh_document_access(root, settings, [old, snapshot])
     access = json.loads((root / "document-access.json").read_text())
     if access["principal"] != settings["principal"]:
@@ -96,7 +105,7 @@ async def synchronize(root, settings):
     admitted = []
     for row in snapshot["records"]:
         scope = row.get("provider_scope")
-        if scope and status.get(scope["provider"], {}).get("phase") == "ready_to_index":
+        if scope:
             provider = scope["provider"]
             verified = access["providers"][provider]
             if scope["connection"] != verified["connection"]:
@@ -104,21 +113,32 @@ async def synchronize(root, settings):
             if not {scope["resource_id"], *scope.get("dependencies", [])} <= set(verified["resource_ids"]):
                 deferred[row["source_id"]] = verified["checked_at"]
                 imports.pop(provider, None)
+                changed = True
+                count = sum(r.get("provider_scope", {}).get("provider") == provider for r in snapshot["records"])
+                coverage.setdefault(provider, {"available_sources": count, "indexed_sources": count})
                 coverage[provider]["indexed_sources"] -= 1
                 coverage[provider]["index_complete"] = False
                 entry = status[provider]
+                entry.setdefault("coverage", dict(coverage[provider]))
+                entry.setdefault("indexed_sources", count)
+                entry.setdefault("batch_sources", 0)
+                entry.setdefault("remaining_sources", max(0, coverage[provider]["available_sources"] - count))
+                entry["phase"] = "ready_to_index"
                 entry["access_deferred_sources"] = entry.get("access_deferred_sources", 0) + 1
                 entry["batch_sources" if row["source_id"] in selected_ids else "indexed_sources"] -= 1
+                if row["source_id"] not in selected_ids: entry["remaining_sources"] += 1
                 continue
             deferred.pop(row["source_id"], None)
         admitted.append(row)
     snapshot["records"] = admitted
+    if not changed:
+        return
     state["document_access_deferred"] = deferred
     write_json(state_path, state)
     write_json(root / "document-ingestion.json", status)
     snapshot["collection"].update(kind="company_capture", managed_sources=coverage, completed_at=datetime.now(timezone.utc).isoformat())
     if snapshot["principal"] == old["principal"] and sorted(snapshot["records"], key=lambda r: r["source_id"]) == sorted(old["records"], key=lambda r: r["source_id"]):
-        state.update(document_imports=imports, coverage_snapshot=digest(old), verified_collection=snapshot["collection"])
+        state.update(document_imports=imports, next_document_provider=next_provider, coverage_snapshot=digest(old), verified_collection=snapshot["collection"])
         write_json(state_path, state)
         for entry in status.values():
             if entry["phase"] == "ready_to_index": entry["phase"] = "indexing" if entry.get("remaining_sources") else "indexed" if entry["coverage"].get("capture_complete", True) else "waiting_for_more_pages"
@@ -154,7 +174,7 @@ def main():
     settings = json.loads((root / "document-sources.json").read_text())
     if settings["budget_usd"] <= 0 or settings.get("batch_sources", 500) < 1 or settings.get("batch_characters", 2_000_000) < 2_000_000: raise ValueError("Positive budget/batch count and capacity for the largest supported source required")
     if args.command == "access":
-        refresh_document_access(root, settings, snapshots_in_use(root))
+        refresh_document_access(root, settings, [])
         return
     with (root / "sync.lock").open("a") as lock:
         try:

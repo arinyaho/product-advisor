@@ -245,3 +245,77 @@ def test_unavailable_page_does_not_block_others_or_starve_later_batches(tmp_path
     assert {r['source_id'] for r in final['records']} == {'p1','p2','p3'}
     assert final['collection']['managed_sources']['notion']['index_complete'] is True
     assert json.loads((tmp_path/'sync.json').read_text())['document_access_deferred'] == {}
+
+
+def test_denied_only_batch_yields_to_other_document_provider(tmp_path, monkeypatch):
+    from company_context import document_sources
+    from company_context.test_document_sync import cache
+    settings, calls = setup_publication(tmp_path, monkeypatch)
+    rows = {'notion': [doc()], 'drive': []}
+    monkeypatch.setattr(document_sync, 'export_capture', lambda p, *a: {'principal': READER, 'records': rows[p], 'collection': {'capture_complete': True}})
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    state_path = tmp_path/'sync.json'
+    state = json.loads(state_path.read_text()); state['next_document_provider'] = 'notion'; state_path.write_text(json.dumps(state))
+    rows['notion'].append(doc(identity='p2')); rows['drive'].append(doc('drive', 'f1'))
+    def refresh(*a): cache(tmp_path, ['p1', 'f1'])
+    monkeypatch.setattr(document_sync, 'refresh_document_access', refresh)
+    monkeypatch.setattr(document_sources, 'refresh_document_access', refresh)
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    assert {r['source_id'] for r in json.loads((tmp_path/'current/snapshot.json').read_text())['records']} == {'p1','f1'}
+
+
+def test_retained_revocation_stays_in_remaining_coverage(tmp_path, monkeypatch):
+    from company_context import document_sources
+    from company_context.test_document_sync import cache
+    settings, calls = setup_publication(tmp_path, monkeypatch)
+    settings['providers'] = {'notion': {}}
+    rows = [doc()]
+    monkeypatch.setattr(document_sync, 'export_capture', lambda *a: {'principal': READER, 'records': rows, 'collection': {'capture_complete': True}})
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    rows.append(doc(identity='p2'))
+    def refresh(*a): cache(tmp_path, ['p2'])
+    monkeypatch.setattr(document_sync, 'refresh_document_access', refresh)
+    monkeypatch.setattr(document_sources, 'refresh_document_access', refresh)
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    final = json.loads((tmp_path/'current/snapshot.json').read_text())
+    assert {r['source_id'] for r in final['records']} == {'p2'}
+    status = json.loads((tmp_path/'document-ingestion.json').read_text())['notion']
+    assert status['indexed_sources'] == 1
+    assert status['remaining_sources'] == 1
+    assert status['phase'] == 'indexing'
+    assert final['collection']['managed_sources']['notion']['index_complete'] is False
+
+
+def test_unchanged_import_reconciles_revocation_when_other_provider_advances(tmp_path, monkeypatch):
+    from company_context import document_sources
+    from company_context.test_document_sync import cache
+    settings, calls = setup_publication(tmp_path, monkeypatch)
+    rows = {'notion': [doc()], 'drive': []}
+    monkeypatch.setattr(document_sync, 'export_capture', lambda p, *a: {'principal': READER, 'records': rows[p], 'collection': {'capture_complete': True}})
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    rows['drive'].append(doc('drive', 'f1'))
+    def refresh(*a): cache(tmp_path, ['f1'])
+    monkeypatch.setattr(document_sync, 'refresh_document_access', refresh)
+    monkeypatch.setattr(document_sources, 'refresh_document_access', refresh)
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    assert {r['source_id'] for r in json.loads((tmp_path/'current/snapshot.json').read_text())['records']} == {'f1'}
+
+
+def test_inventory_refresh_includes_preflight_and_current_under_its_lock(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from company_context import document_sources
+    (tmp_path/'document-preflight.json').write_text(json.dumps({'records': [doc(identity='p2')]}))
+    calls = []
+    class API:
+        client = SimpleNamespace(close=lambda: None)
+        def __init__(self, *a): pass
+        def request(self, method, path, **kwargs):
+            calls.append(path)
+            if path == 'users/me': return {'id':'bot1', 'bot':{'workspace_id':'W'}}
+            return {'archived':False}
+    monkeypatch.setattr(document_sources, 'Notion', API)
+    settings = {'principal':READER, 'providers':{'notion':{'token_file':'synthetic','workspace_id':'W','connection_id':'bot1'}}}
+    result = document_sources.refresh_document_access(tmp_path, settings, [{'records':[doc()]}])
+    assert set(calls) == {'users/me','pages/p1','pages/p2'}
+    assert set(result['providers']['notion']['resource_ids']) == {'p1','p2'}

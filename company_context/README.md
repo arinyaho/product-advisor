@@ -57,6 +57,8 @@ Create private `document-sources.json` with an explicitly approved scope and bud
 
 Install/adapt the capture services, `company-document-sync.service`/`.timer` and `company-document-access.service`/`.timer`. After a manual `python -m company_context.document_sync sync --state-dir /private` and `access` check, enable the timers. The server keeps the existing `--access-state` and `--sync-state` paths. Authorizing the Notion integration for the reader is an explicit operator decision, not inferred from an email match.
 
+Live access checks exclude archived or unreadable pages and unavailable synced-block dependencies before model dispatch. Denied records remain pending and are retried after untried records, oldest access check first; a denied-only batch still yields to the next document provider. Revoked published records are withdrawn even when their capture has not changed. Private `document-preflight.json` exposes candidate scopes to concurrent ACL scans and is removed when synchronization exits; scans resolve active scopes under the inventory lock. A process crash can leave that file until the next document sync, causing extra access checks but never serving or indexing its contents by itself.
+
 ## Source snapshot
 
 The input is JSON with `principal` and `records`. Every record has `source_id`, `source_type` (`slack`, `docs`, `jira`, `notion`, `user_update`), `url`, `title`, `author`, `occurred_at`, `updated_at`, `collected_at`, `record_kind`, and `text`.
