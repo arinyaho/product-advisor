@@ -147,5 +147,8 @@ def test_malformed_error_diagnostics_do_not_mask_failure_or_leak(monkeypatch, tm
     row = json.loads(provider.receipts.read_text().splitlines()[-1])
     assert row["status"] == "failed_cost_unknown" and row["error_type"] == "HTTPStatusError"
     assert row["charged_or_estimated_usd"] == .1
-    assert row.get("failure_metadata", {}) == expected
+    if expected:
+        assert row["failure_metadata"] == expected
+    else:
+        assert "failure_metadata" not in row
     assert "private" not in provider.receipts.read_text()
