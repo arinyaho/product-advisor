@@ -34,6 +34,52 @@ def test_only_recognized_endpoint_specific_validation_errors_are_omissions(tmp_p
     db.close()
 
 
+def test_small_notion_access_check_reads_each_required_page_and_synced_block(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from company_context import document_sources
+    from company_context.test_document_sync import cache
+    cache(tmp_path, ['p1','p2','block:origin'])
+    row = doc(); row['provider_scope']['dependencies'] = ['block:origin']
+    calls = []
+    class API:
+        client = SimpleNamespace(close=lambda: None)
+        def __init__(self, *a): pass
+        def request(self, method, path, **kwargs):
+            calls.append((method,path))
+            if path == 'users/me': return {'id':'bot1','bot':{'workspace_id':'W'}}
+            assert method == 'GET' and path in ('pages/p1','pages/p2','blocks/origin')
+            if path == 'pages/p2':
+                httpx.Response(404,request=httpx.Request('GET','https://api.notion.com/v1/test')).raise_for_status()
+            return {'archived':False, 'in_trash':False}
+    monkeypatch.setattr(document_sources,'Notion',API)
+    settings = {'principal':READER,'providers':{'notion':{'token_file':'synthetic','workspace_id':'W','connection_id':'bot1'}}}
+    result = document_sources.refresh_document_access(tmp_path, settings, [{'records':[row,doc(identity='p2')]}])
+    assert set(calls) == {('GET','users/me'),('GET','pages/p1'),('GET','pages/p2'),('GET','blocks/origin')}
+    assert set(result['providers']['notion']['resource_ids']) == {'p1','block:origin'}
+
+
+def test_large_notion_access_check_keeps_paginated_search_and_missing_page_reads(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from company_context import document_sources
+    calls = []
+    class API:
+        client = SimpleNamespace(close=lambda: None)
+        def __init__(self, *a): pass
+        def request(self, method, path, **kwargs):
+            calls.append((method,path))
+            if path == 'users/me': return {'id':'bot1','bot':{'workspace_id':'W'}}
+            if path == 'search':
+                cursor = kwargs['json'].get('start_cursor')
+                return {'results':[{'id':'p'+str(i)} for i in range(50 if cursor else 0, 100 if cursor else 50)], 'next_cursor':None if cursor else 'next'}
+            assert path == 'pages/p100'
+            return {'archived':True}
+    monkeypatch.setattr(document_sources,'Notion',API)
+    settings = {'principal':READER,'providers':{'notion':{'token_file':'synthetic','workspace_id':'W','connection_id':'bot1'}}}
+    result = document_sources.refresh_document_access(tmp_path,settings,[{'records':[doc(identity='p'+str(i)) for i in range(101)]}])
+    assert calls == [('GET','users/me'),('POST','search'),('POST','search'),('GET','pages/p100')]
+    assert set(result['providers']['notion']['resource_ids']) == {'p'+str(i) for i in range(100)}
+
+
 def test_partial_export_requires_every_rendered_dependency_and_stable_source_time(tmp_path):
     path = tmp_path / 'capture.sqlite'
     db = open_store(path, {'workspace_id': 'W', 'connection_id': 'bot1'})

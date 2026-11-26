@@ -191,7 +191,8 @@ def refresh_document_access(root, settings, snapshots):
                     if identity.get("id") != config["connection_id"] or identity.get("bot", {}).get("workspace_id") != config["workspace_id"]:
                         revoke(); raise ValueError("Notion integration identity changed")
                     visible, cursor = set(), ""
-                    while True:
+                    # Small batches need only direct reads of their exact dependencies.
+                    while len(required) > 100:
                         page = api.request("POST", "search", json={"page_size": 100, "filter": {"value": "page", "property": "object"}, **({"start_cursor": cursor} if cursor else {})})
                         visible.update(v["id"] for v in page.get("results", []) if not v.get("archived") and not v.get("in_trash"))
                         following = page.get("next_cursor") or ""
