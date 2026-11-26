@@ -48,6 +48,7 @@ def test_partial_export_requires_every_rendered_dependency_and_stable_source_tim
     assert {r['source_id'] for r in first['records']} == {'notion:W:ready'}
     assert first['collection']['capture_complete'] is False
     assert first['collection']['pending_pages'] == 4
+    assert 'page_dependencies_incomplete' not in first['collection']['export_omissions']
     stable = first['records'][0]
     with db:
         db.execute("UPDATE tasks SET done=1 WHERE kind='children' AND id='toggle'")
@@ -96,3 +97,57 @@ def test_partial_metadata_progress_and_completion_do_not_repeat_extraction(tmp_p
         assert observed['pending_pages'] == pending
         assert observed['index_complete'] == (pending == 0)
         assert len(calls) == count
+
+
+def test_live_export_reader_does_not_block_collector_commits(tmp_path):
+    import sqlite3
+    path = tmp_path / 'capture.sqlite'
+    writer = open_store(path, {'workspace_id': 'W'})
+    reader = sqlite3.connect(path, timeout=0)
+    writer.execute('PRAGMA busy_timeout=0')
+    reader.execute('BEGIN')
+    reader.execute('SELECT * FROM metadata').fetchall()
+    try:
+        with writer: enqueue(writer, 'page', 'new')
+        reader.rollback()
+        assert reader.execute("SELECT id FROM tasks WHERE kind='page'").fetchall() == [('new',)]
+    finally:
+        reader.close(); writer.close()
+
+
+def test_operator_validation_retry_retains_positions_and_unknown_failures(tmp_path):
+    from company_context import collect_notion
+    db = open_store(tmp_path / 'capture.sqlite', {'workspace_id': 'W'})
+    with db:
+        db.execute('UPDATE tasks SET done=1')
+        for identity, error in [('known', '400'), ('unknown', '400'), ('other', '503')]:
+            enqueue(db, 'children', identity)
+            db.execute("UPDATE tasks SET cursor='next',consumed=100,error=? WHERE id=?", (error, identity))
+    assert collect_notion.retry_validation_errors(db) == 2
+    assert set(db.execute('SELECT id,cursor,previous_error FROM operator_retries')) == {('known','next','400'), ('unknown','next','400')}
+    calls = []
+    class API:
+        def request(self, method, path, **kwargs):
+            calls.append((path, kwargs['params'].get('start_cursor')))
+            message = 'Block type external_object_instance_page is not supported via the API.' if '/known/' in path else 'Invalid request parameter.'
+            httpx.Response(400, json={'code':'validation_error', 'message':message}, request=httpx.Request('GET','https://api.notion.com/v1/test')).raise_for_status()
+    collect(API(), db)
+    assert calls == [('blocks/known/children','next'), ('blocks/unknown/children','next')]
+    assert set(db.execute("SELECT id,consumed,error FROM tasks WHERE kind='children'")) == {('known',100,None), ('unknown',100,'400'), ('other',100,'503')}
+    db.close()
+
+
+def test_slack_publication_preserves_verified_notion_completion(tmp_path, monkeypatch):
+    from company_context import sync
+    from company_context.test_ingestion_review import setup_sync
+    from company_context.test_document_sync import cache
+    old = {'principal':READER, 'records':[doc()], 'collection':{'managed_sources':{'notion':{'capture_id':'capture','index_complete':False}}}}
+    args = setup_sync(tmp_path, monkeypatch, old=old, messages=[{'ts':'12','text':'New evidence'}])
+    cache(tmp_path)
+    verified = {'managed_sources':{'notion':{'capture_id':'capture','index_complete':True}}}
+    sync.write_json(tmp_path/'sync.json', {'phase':'unchanged','coverage_snapshot':sync.digest(old),'verified_collection':verified})
+    observed = []
+    async def publish(args, snapshot, *a): observed.append(snapshot)
+    monkeypatch.setattr(sync, 'publish_snapshot', publish)
+    asyncio.run(sync.synchronize(args))
+    assert observed[0]['collection']['managed_sources'] == verified['managed_sources']

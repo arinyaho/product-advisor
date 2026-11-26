@@ -63,6 +63,7 @@ def open_store(path, identity):
     if known and known.get("capture_schema") != "2":
         db.close()
         raise ValueError("Capture schema changed; retain the old archive and start a new database")
+    db.execute("PRAGMA journal_mode=WAL")
     with db:
         db.execute("INSERT OR IGNORE INTO metadata VALUES ('capture_schema','2')")
         db.execute("INSERT OR IGNORE INTO metadata VALUES ('capture_id',?)", (str(uuid.uuid4()),))
@@ -157,6 +158,16 @@ def omission_reason(kind, error):
     return None
 
 
+def retry_validation_errors(db):
+    # Explicit operator action: repeat only saved read requests, never model calls.
+    with db:
+        db.execute("CREATE TABLE IF NOT EXISTS operator_retries(at TEXT,kind TEXT,id TEXT,cursor TEXT,previous_error TEXT,reason TEXT)")
+        selected = db.execute("SELECT kind,id,cursor,error FROM tasks WHERE done=0 AND error='400'").fetchall()
+        db.executemany("INSERT INTO operator_retries VALUES (?,?,?,?,?,?)", [(datetime.now(timezone.utc).isoformat(), *row, "Operator requested endpoint-specific validation reclassification") for row in selected])
+        db.executemany("UPDATE tasks SET error=NULL WHERE kind=? AND id=? AND error='400'", [(row[0], row[1]) for row in selected])
+    return len(selected)
+
+
 def collect(api, db):
     if dict(db.execute("SELECT key,value FROM metadata")).get("finished_at") and not db.execute("SELECT count(*) FROM tasks WHERE done=0 OR error IS NOT NULL").fetchone()[0]:
         return status(db)
@@ -210,6 +221,7 @@ def main():
     parser.add_argument("--token-file", required=True)
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--workspace-id", required=True)
+    parser.add_argument("--retry-validation-errors", action="store_true", help="Audit and requeue saved HTTP400 reads once; unknown errors remain failed")
     args = parser.parse_args()
     api = Notion(args.token_file)
     args.database.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -220,6 +232,7 @@ def main():
             raise ValueError("Notion connection is not in the authorized company workspace")
         db = open_store(args.database, {"workspace_id": args.workspace_id, "connection_id": identity["id"], "api_version": "2025-09-03"})
         try:
+            if args.retry_validation_errors: print(json.dumps({"validation_reads_requeued": retry_validation_errors(db)}), flush=True)
             result = collect(api, db)
             if result["failed_tasks"]:
                 raise SystemExit(1)

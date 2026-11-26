@@ -132,7 +132,8 @@ def export_capture(provider, settings, principal):
             if partial and not meta.get("capture_id"): raise IncompleteCapture("capture_identity_missing")
             rows, omissions = notion_records(db, settings, finished)
             if not rows and unfinished: raise IncompleteCapture("capture_has_no_complete_pages")
-            coverage = {"capture_id": meta.get("capture_id"), "capture_complete": not unfinished, "pending_tasks": unfinished, "pending_pages": len(omissions.get("page_dependencies_incomplete", [])), "omissions": dict(db.execute("SELECT reason,count(*) FROM omissions GROUP BY reason")), "export_omissions": omissions}
+            pending_pages = len(omissions.pop("page_dependencies_incomplete", []))
+            coverage = {"capture_id": meta.get("capture_id"), "capture_complete": not unfinished, "pending_tasks": unfinished, "pending_pages": pending_pages, "omissions": dict(db.execute("SELECT reason,count(*) FROM omissions GROUP BY reason")), "export_omissions": omissions}
         elif provider == "drive":
             if meta.get("email") != settings["email"] or meta.get("permission_id") != settings["permission_id"] or meta.get("capture_schema") != "1": raise ValueError("Drive capture identity or schema differs")
             if db.execute("SELECT count(*) FROM scopes WHERE done=0").fetchone()[0] or db.execute("SELECT count(*) FROM files WHERE status IN ('pending','failed')").fetchone()[0]: raise IncompleteCapture("capture_has_unfinished_tasks")

@@ -363,7 +363,8 @@ async def synchronize(args):
         if managed:
             for provider in sorted({r["provider_scope"]["provider"] for r in managed}):
                 snapshot["records"] = merge_records(snapshot["records"], [r for r in managed if r["provider_scope"]["provider"] == provider], provider)
-            snapshot["collection"]["managed_sources"] = previous_snapshot.get("collection", {}).get("managed_sources", {})
+            previous_coverage = reported_coverage(previous_snapshot, digest(previous_snapshot), state_path)
+            snapshot["collection"]["managed_sources"] = previous_coverage.get("managed_sources", {}) if isinstance(previous_coverage, dict) else {}
         withdraw_changed(previous_snapshot, snapshot, state, state_path)
         limit = policy.get("slack_batch_sources", 100)
         capacity = policy.get("slack_batch_characters", 500_000)
