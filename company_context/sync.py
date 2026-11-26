@@ -37,10 +37,14 @@ def refresh_access(api, path):
         if auth.get("bot_id") or not auth.get("user_id") or not auth.get("team_id"):
             raise ValueError("Slack must confirm a named human reader and workspace")
         identity = f"slack:{auth['team_id']}:{auth['user_id']}"
-        if path.exists() and json.loads(path.read_text())["principal"] != identity:
+        previous = json.loads(path.read_text()) if path.exists() else {}
+        if previous and previous["principal"] != identity:
             raise ValueError("Refusing to replace another reader's access inventory")
         channels = inventory(api)
-        result = {"principal": identity, "checked_at": checked_at, "channel_ids": sorted(channels)}
+        revoked = dict(previous.get("revoked_channels", {}))
+        for channel in set(previous.get("channel_ids", [])) - set(channels):
+            revoked[channel] = checked_at
+        result = {"principal": identity, "checked_at": checked_at, "channel_ids": sorted(channels), "revoked_channels": revoked}
         write_json(path, result)
         return result
 
@@ -122,15 +126,15 @@ def accept_mcp(client, corpus):
             raise ValueError("MCP returned a different source")
 
 
-def reported_coverage(corpus, state_path):
+def reported_coverage(snapshot, version, state_path):
     if state_path and Path(state_path).exists():
         try:
             state = json.loads(Path(state_path).read_text())
-            if state.get("coverage_snapshot") == corpus.version and isinstance(state.get("verified_collection"), dict):
+            if state.get("coverage_snapshot") == version and isinstance(state.get("verified_collection"), dict):
                 return state["verified_collection"]
         except (OSError, ValueError):
             pass
-    return corpus.snapshot.get("collection", "explicit_snapshot_not_all_company_knowledge")
+    return snapshot.get("collection", "explicit_snapshot_not_all_company_knowledge")
 
 
 def progress(state_path):
@@ -305,6 +309,10 @@ async def synchronize(args):
             write_json(state_path, state)
             db = open_store(database, since, until)
             prior = sqlite3.connect(f"file:{state['last_database']}?mode=ro", uri=True) if state.get("last_database") else None
+            if prior:
+                prior_time = timestamp(dict(prior.execute("SELECT key,value FROM metadata"))["completed_at"])
+                if any(timestamp(value) >= prior_time for value in access.get("revoked_channels", {}).values()):
+                    prior.close(); prior = None
             try:
                 if not collect(api, db, since, until, prior):
                     raise ValueError("Capture is incomplete; no candidate was built")
@@ -317,7 +325,9 @@ async def synchronize(args):
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as db:
             if state.get("slack_batch_database"):
                 captured_channels = {row[0] for row in db.execute("SELECT id FROM channels")}
-                excluded = set(state.get("slack_batch_excluded_channels", [])) | (captured_channels - set(access["channel_ids"]))
+                captured_at = timestamp(dict(db.execute("SELECT key,value FROM metadata"))["completed_at"])
+                observed_revocations = {channel for channel, revoked_at in access.get("revoked_channels", {}).items() if timestamp(revoked_at) >= captured_at}
+                excluded = set(state.get("slack_batch_excluded_channels", [])) | (captured_channels - set(access["channel_ids"])) | (captured_channels & observed_revocations)
                 state["slack_batch_excluded_channels"] = sorted(excluded)
                 write_json(state_path, state)
                 snapshot = export_snapshot(db, previous_snapshot, allowed_channels=set(access["channel_ids"]) - excluded)

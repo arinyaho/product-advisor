@@ -31,8 +31,9 @@ def test_slack_batches_publish_exact_membership_and_reuse_frozen_capture(tmp_pat
     assert not json.loads((tmp_path/'sync.json').read_text()).get('slack_batch_database')
 
 
+@pytest.mark.parametrize("access_only", [False, True])
 @pytest.mark.parametrize("with_messages", [False, True])
-def test_frozen_backfill_continues_after_empty_channel_revocation(tmp_path, monkeypatch, with_messages):
+def test_frozen_backfill_continues_after_empty_channel_revocation(tmp_path, monkeypatch, with_messages, access_only):
     import sqlite3
     from company_context.test_ingestion_review import SyncAPI
     from company_context.test_collect_slack import channel
@@ -54,13 +55,23 @@ def test_frozen_backfill_continues_after_empty_channel_revocation(tmp_path, monk
     monkeypatch.setattr(sync,'collect',lambda *a,**kw:True)
     asyncio.run(sync.synchronize(args))
     visible.remove('C002')
+    if access_only:
+        sync.refresh_access(API(), tmp_path/'access.json')
+        visible.append('C002')
+        sync.refresh_access(API(), tmp_path/'access.json')
     asyncio.run(sync.synchronize(args))
-    visible.append('C002')
+    if 'C002' not in visible:visible.append('C002')
     asyncio.run(sync.synchronize(args))
     value=json.loads((tmp_path/'current/snapshot.json').read_text())
     assert {v['source_id'] for v in value['records']} == {'slack:T1:C001:thread:17','slack:T1:C001:thread:18','slack:T1:C001:thread:19'}
     assert value['collection']['channel_ids'] == ['C001']
     assert value['collection']['access_excluded_channel_ids'] == ['C002']
+    def fresh_collection(api, db, since, until, previous=None):
+        assert previous is None
+        raise RuntimeError('fresh provider reads required')
+    monkeypatch.setattr(sync,'collect',fresh_collection)
+    with pytest.raises(RuntimeError,match='fresh provider reads required'):
+        asyncio.run(sync.synchronize(args))
 
 
 def test_unchanged_records_report_current_verified_coverage_without_models(tmp_path,monkeypatch):
@@ -83,3 +94,20 @@ def test_unchanged_records_report_current_verified_coverage_without_models(tmp_p
         result=rpc(client,'tools/call',{'name':'company_index_status','arguments':{}})
     assert result['coverage']['through']=='2026-11-26T00:00:00Z'
     assert result['coverage']['bot_only_messages_excluded']==10
+
+
+def test_document_publication_inherits_latest_verified_slack_coverage(tmp_path,monkeypatch):
+    from company_context import document_sync
+    from company_context.test_document_sync import doc
+    settings,_=setup_publication(tmp_path,monkeypatch)
+    settings['providers']={'drive':{}}
+    old={'principal':'slack:T1:U1','records':[record('same')],'collection':{'through':'2026-11-24T00:00:00Z','completed_at':'2026-11-24T00:00:00Z'}}
+    previous=tmp_path/'old';previous.mkdir();(previous/'snapshot.json').write_text(json.dumps(old));(tmp_path/'current').symlink_to(previous)
+    (tmp_path/'sync.json').write_text(json.dumps({'phase':'unchanged','coverage_snapshot':sync.digest(old),'verified_collection':{'through':'2026-11-26T00:00:00Z','completed_at':'2026-11-26T00:00:00Z','bot_only_messages_excluded':10}}))
+    monkeypatch.setattr(document_sync,'export_capture',lambda *a:{'principal':'slack:T1:U1','records':[doc('drive','f1')],'collection':{'completed_at':'2026-11-26T00:00:00Z'}})
+    observed=[]
+    async def publish(args,snapshot,*a):observed.append(snapshot)
+    monkeypatch.setattr(document_sync,'publish_snapshot',publish)
+    asyncio.run(document_sync.synchronize(tmp_path,settings))
+    assert observed[0]['collection']['through']=='2026-11-26T00:00:00Z'
+    assert observed[0]['collection']['bot_only_messages_excluded']==10
