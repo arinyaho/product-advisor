@@ -15,6 +15,7 @@ from company_context.test_document_sync import READER, doc, setup_publication
 @pytest.mark.parametrize('kind,message,reason', [
     ('children', 'Block type external_object_instance_page is not supported via the API.', 'api_unsupported_block'),
     ('property', 'Invalid relations found in rollup.', 'invalid_rollup_relations'),
+    ('property', 'notion://tasks/status_property is not a property that exists.', 'invalid_rollup_relations'),
     ('children', 'Invalid request parameter.', None),
     ('property', 'Block type external_object_instance_page is not supported via the API.', None),
 ])

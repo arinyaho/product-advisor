@@ -154,7 +154,7 @@ def omission_reason(kind, error):
     except ValueError: return None
     if not isinstance(detail, dict) or detail.get("code") != "validation_error": return None
     if kind == "children" and detail.get("message") == "Block type external_object_instance_page is not supported via the API.": return "api_unsupported_block"
-    if kind == "property" and detail.get("message") == "Invalid relations found in rollup.": return "invalid_rollup_relations"
+    if kind == "property" and detail.get("message") in ("Invalid relations found in rollup.", "notion://tasks/status_property is not a property that exists."): return "invalid_rollup_relations"
     return None
 
 
