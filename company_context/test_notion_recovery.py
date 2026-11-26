@@ -215,3 +215,33 @@ def test_withheld_page_metadata_needs_retained_body_not_a_generated_title(tmp_pa
     assert result['collection']['empty_withheld_pages'] == 1
     assert 'no_retained_content' not in result['collection']['export_omissions']
     db.close()
+
+
+def test_unavailable_page_does_not_block_others_or_starve_later_batches(tmp_path, monkeypatch):
+    from company_context import document_sources
+    from company_context.test_document_sync import cache
+    settings, calls = setup_publication(tmp_path, monkeypatch)
+    settings['providers'] = {'notion': {}}
+    rows = [doc()]
+    monkeypatch.setattr(document_sync, 'export_capture', lambda *a: {'principal': READER, 'records': list(rows), 'collection': {'capture_complete': True}})
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    allowed = ['p1', 'p2']
+    def refresh(*a): cache(tmp_path, allowed)
+    monkeypatch.setattr(document_sync, 'refresh_document_access', refresh)
+    monkeypatch.setattr(document_sources, 'refresh_document_access', refresh)
+    rows.extend([doc(identity='p2'), doc(identity='p3')])
+    before = len(calls)
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    assert len(calls) == before  # The entire first candidate was denied; no paid build.
+    assert {r['source_id'] for r in json.loads((tmp_path/'current/snapshot.json').read_text())['records']} == {'p1'}
+    status = json.loads((tmp_path/'document-ingestion.json').read_text())['notion']
+    assert status['access_deferred_sources'] == 1
+    assert status['batch_sources'] == 0
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    assert {r['source_id'] for r in json.loads((tmp_path/'current/snapshot.json').read_text())['records']} == {'p1','p2'}
+    allowed.append('p3')
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    final = json.loads((tmp_path/'current/snapshot.json').read_text())
+    assert {r['source_id'] for r in final['records']} == {'p1','p2','p3'}
+    assert final['collection']['managed_sources']['notion']['index_complete'] is True
+    assert json.loads((tmp_path/'sync.json').read_text())['document_access_deferred'] == {}

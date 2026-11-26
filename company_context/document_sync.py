@@ -42,6 +42,8 @@ async def synchronize(root, settings):
     snapshot = {"principal": settings["principal"], "records": list(old["records"]), "collection": dict(verified_collection) if isinstance(verified_collection, dict) else {}}
     coverage = dict(snapshot["collection"].get("managed_sources", {}))
     imports = dict(state.get("document_imports", {}))
+    deferred = dict(state.get("document_access_deferred", {}))
+    selected_ids = set()
     status = {}
     changed = False
     remaining = settings.get("batch_sources", 500)
@@ -67,10 +69,13 @@ async def synchronize(root, settings):
         existing = {r["source_id"]: r for r in old["records"] if r.get("provider_scope", {}).get("provider") == provider}
         retained = [r for r in incoming["records"] if existing.get(r["source_id"]) == r]
         pending = sorted([r for r in incoming["records"] if existing.get(r["source_id"]) != r], key=lambda r: (timestamp(r.get("updated_at") or r["collected_at"]), r["source_id"]), reverse=True)
+        # Retry denied sources after untried sources, oldest access check first.
+        pending.sort(key=lambda r: deferred.get(r["source_id"], ""))
         selected = []
         for row in pending:
             if not remaining or len(row["text"]) > remaining_characters: continue
             selected.append(row)
+            selected_ids.add(row["source_id"])
             remaining -= 1; remaining_characters -= len(row["text"])
         snapshot["records"] = merge_records(snapshot["records"], sorted(retained + selected, key=lambda r: r["source_id"]), provider)
         count = len(retained) + len(selected)
@@ -83,6 +88,34 @@ async def synchronize(root, settings):
     write_json(root / "document-ingestion.json", status)
     if not changed:
         return
+    withdraw_changed(old if previous else None, snapshot, state, state_path)
+    refresh_document_access(root, settings, [old, snapshot])
+    access = json.loads((root / "document-access.json").read_text())
+    if access["principal"] != settings["principal"]:
+        raise ValueError("Document access inventory belongs to another reader")
+    admitted = []
+    for row in snapshot["records"]:
+        scope = row.get("provider_scope")
+        if scope and status.get(scope["provider"], {}).get("phase") == "ready_to_index":
+            provider = scope["provider"]
+            verified = access["providers"][provider]
+            if scope["connection"] != verified["connection"]:
+                raise ValueError("Document connection changed")
+            if not {scope["resource_id"], *scope.get("dependencies", [])} <= set(verified["resource_ids"]):
+                deferred[row["source_id"]] = verified["checked_at"]
+                imports.pop(provider, None)
+                coverage[provider]["indexed_sources"] -= 1
+                coverage[provider]["index_complete"] = False
+                entry = status[provider]
+                entry["access_deferred_sources"] = entry.get("access_deferred_sources", 0) + 1
+                entry["batch_sources" if row["source_id"] in selected_ids else "indexed_sources"] -= 1
+                continue
+            deferred.pop(row["source_id"], None)
+        admitted.append(row)
+    snapshot["records"] = admitted
+    state["document_access_deferred"] = deferred
+    write_json(state_path, state)
+    write_json(root / "document-ingestion.json", status)
     snapshot["collection"].update(kind="company_capture", managed_sources=coverage, completed_at=datetime.now(timezone.utc).isoformat())
     if snapshot["principal"] == old["principal"] and sorted(snapshot["records"], key=lambda r: r["source_id"]) == sorted(old["records"], key=lambda r: r["source_id"]):
         state.update(document_imports=imports, coverage_snapshot=digest(old), verified_collection=snapshot["collection"])
@@ -98,7 +131,6 @@ async def synchronize(root, settings):
     try:
         access = refresh_access(api, root / "access.json")
         if access["principal"] != settings["principal"]: raise ValueError("Slack reader differs from document authorization")
-        refresh_document_access(root, settings, [old, snapshot])
         require_access(corpus, root / "access.json")
         args = SimpleNamespace(state_dir=root, config=Path(settings["model_config"]), budget_usd=settings["budget_usd"], max_model_calls=settings.get("max_model_calls", 50000), mcp_token_file=Path(settings["mcp_token_file"]), service=settings.get("service", "company-context.service"), port=settings.get("port", 8766))
         await publish_snapshot(args, snapshot, state, previous, lambda: refresh_access(api, root / "access.json"), {"document_imports": imports, "next_document_provider": next_provider})
