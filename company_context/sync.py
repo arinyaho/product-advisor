@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 
 from company_context.collect_slack import Slack, collect, inventory, open_store
-from company_context.context import Corpus, Models, build, close_engine, open_index, slack_channel_id, digest, index_config
+from company_context.context import Corpus, Models, build, close_engine, open_index, slack_channel_id, digest, index_config, timestamp
 from company_context.slack_snapshot import export_snapshot
 
 
@@ -229,6 +229,7 @@ async def publish_snapshot(args, snapshot, state, previous, refresh, updates):
 async def synchronize(args):
     root = args.state_dir
     policy_path = root / "document-sources.json"
+    policy = {}
     if args.command == "sync" and policy_path.exists():
         policy = json.loads(policy_path.read_text())
         args.budget_usd = policy["budget_usd"]
@@ -247,7 +248,9 @@ async def synchronize(args):
         previous = current.resolve() if current.is_symlink() else None
         previous_snapshot = json.loads((previous / "snapshot.json").read_text()) if previous else None
         bootstrap = args.bootstrap_database
-        if not state.get("last_database") and not state.get("pending_database") and bootstrap:
+        if state.get("slack_batch_database"):
+            database = Path(state["slack_batch_database"])
+        elif not state.get("last_database") and not state.get("pending_database") and bootstrap:
             state.update(phase="initial_collection", initial_database=str(bootstrap))
             write_json(state_path, state)
             with bootstrap.with_suffix(".lock").open("a") as initial_lock:
@@ -326,14 +329,34 @@ async def synchronize(args):
                 snapshot["records"] = merge_records(snapshot["records"], [r for r in managed if r["provider_scope"]["provider"] == provider], provider)
             snapshot["collection"]["managed_sources"] = previous_snapshot.get("collection", {}).get("managed_sources", {})
         withdraw_changed(previous_snapshot, snapshot, state, state_path)
+        limit = policy.get("slack_batch_sources", 100)
+        capacity = policy.get("slack_batch_characters", 500_000)
+        if type(limit) is not int or limit < 1 or type(capacity) is not int or capacity < 1:
+            raise ValueError("Positive Slack source count and character capacity required")
+        previous_rows = {r["source_id"]: r for r in (previous_snapshot or {}).get("records", [])}
+        slack_rows = [r for r in snapshot["records"] if r["source_type"] == "slack"]
+        retained = [r for r in slack_rows if previous_rows.get(r["source_id"]) == r]
+        def activity(row):
+            dates = [row.get("updated_at"), row.get("occurred_at"), (row.get("message_spans") or [{}])[-1].get("occurred_at")]
+            return max((timestamp(value) for value in dates if value), default=timestamp(row["collected_at"])), row["source_id"]
+        pending = sorted([r for r in slack_rows if previous_rows.get(r["source_id"]) != r], key=activity, reverse=True)
+        selected = []
+        for row in pending:
+            if len(selected) >= limit: break
+            if selected and len(row["text"]) > capacity: continue
+            selected.append(row); capacity -= len(row["text"])
+        snapshot["records"] = [r for r in snapshot["records"] if r["source_type"] != "slack"] + retained + selected
+        complete = len(retained) + len(selected) == len(slack_rows)
+        snapshot["collection"]["slack_indexing"] = {"available_sources": len(slack_rows), "indexed_sources": len(retained) + len(selected), "complete": complete}
+        updates = {"last_database": str(database), "slack_batch_database": None if complete else str(database)}
         corpus = Corpus(snapshot)
         require_access(corpus, root / "access.json")
         if previous_snapshot and sorted(previous_snapshot["records"], key=lambda r: r["source_id"]) == sorted(snapshot["records"], key=lambda r: r["source_id"]):
-            state.update(phase="unchanged", last_database=str(database), last_collected_at=snapshot["collection"]["completed_at"])
+            state.update(phase="unchanged", last_collected_at=snapshot["collection"]["completed_at"], **updates)
             state.pop("pending_database", None); state.pop("pending_until", None)
             write_json(state_path, state)
             return
-        await publish_snapshot(args, snapshot, state, previous, lambda: refresh_access(api, root / "access.json"), {"last_database": str(database)})
+        await publish_snapshot(args, snapshot, state, previous, lambda: refresh_access(api, root / "access.json"), updates)
     finally:
         api.client.close()
 

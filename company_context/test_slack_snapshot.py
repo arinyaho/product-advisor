@@ -64,3 +64,60 @@ def test_export_requires_complete_capture_and_keeps_unchanged_provenance(tmp_pat
     with pytest.raises(ValueError, match="complete"):
         export_snapshot(db)
     db.close()
+
+
+def test_continuous_timeline_is_bounded_without_dropping_or_duplicating_messages(tmp_path):
+    start = 1788739200
+    messages = [{"ts": str(start + i * 5), "user": "U1", "text": str(i).zfill(5) + "x" * 165} for i in range(11268)]
+    db = open_store(tmp_path / "capture.sqlite", start - 1, start + 86400)
+    with db:
+        db.execute("INSERT INTO channels(id,info,done) VALUES (?,?,1)", ("C001", json.dumps(channel())))
+        db.executemany("INSERT INTO metadata VALUES (?,?)", [("reader", "U1"), ("team_id", "T1"), ("workspace_url", "https://workspace.slack.com/"), ("completed_at", "2026-11-26T01:00:00+00:00")])
+        save_messages(db, "C001", messages, start - 1, start + 86400)
+    snapshot = export_snapshot(db)
+    corpus = Corpus(snapshot)
+    assert [span["ts"] for row in snapshot["records"] for span in row["message_spans"]] == [message["ts"] for message in messages]
+    assert all(len(row["text"]) <= 32000 and len(row["message_spans"]) <= 100 for row in snapshot["records"])
+    for row in snapshot["records"]:
+        assert float(row["message_spans"][-1]["ts"]) - float(row["message_spans"][0]["ts"]) <= 1800
+        assert "".join(corpus.chunks[identity]["text"] for identity in corpus.source_chunks[row["source_id"]]) == row["text"]
+    assert len({r["source_id"] for r in snapshot["records"]}) == len(snapshot["records"])
+    db.close()
+
+
+def test_timeline_window_is_measured_from_start_and_threads_remain_separate():
+    rows = [{"ts": str(100 + i * 600), "text": "nearby"} for i in range(8)]
+    rows += [{"ts": "110", "text": "root", "reply_count": 1}, {"ts": "5000", "thread_ts": "110", "text": "late reply"}]
+    grouped = {key: [m["ts"] for m in values] for key, values in conversations(rows)}
+    assert grouped == {("timeline", "100"): ["100", "700", "1300", "1900"], ("thread", "110"): ["110", "5000"], ("timeline", "2500"): ["2500", "3100", "3700", "4300"]}
+
+
+def test_export_excludes_only_bot_conversations_and_retains_human_thread(tmp_path):
+    db = open_store(tmp_path / "capture.sqlite", 10, 9000)
+    messages = [{"ts": "20", "bot_id": "B1", "text": "alert"}, {"ts": "21", "user": "U1", "subtype": "channel_join", "text": "joined"}, {"ts": "30", "bot_id": "B1", "reply_count": 1, "text": "bot root"}, {"ts": "31", "bot_id": "B1", "thread_ts": "30", "text": "bot reply"}, {"ts": "40", "bot_id": "B1", "reply_count": 2, "text": "keep bot root"}, {"ts": "41", "user": "U1", "thread_ts": "40", "text": "human decision"}, {"ts": "42", "bot_id": "B1", "thread_ts": "40", "text": "keep bot reply"}, {"ts": "5000", "user": "U1", "text": "human timeline"}, {"ts": "5001", "bot_id": "B1", "text": "nearby bot"}]
+    with db:
+        db.execute("INSERT INTO channels(id,info,done) VALUES (?,?,1)", ("C001", json.dumps(channel())))
+        db.executemany("INSERT INTO metadata VALUES (?,?)", [("reader", "U1"), ("team_id", "T1"), ("workspace_url", "https://workspace.slack.com/"), ("completed_at", "2026-11-26T01:00:00+00:00")])
+        save_messages(db, "C001", messages, 10, 9000)
+    snapshot = export_snapshot(db)
+    assert {s["ts"] for r in snapshot["records"] for s in r["message_spans"]} == {"40", "41", "42", "5000", "5001"}
+    assert snapshot["collection"]["bot_only_messages_excluded"] == 4
+    assert {ts for (ts,) in db.execute("SELECT ts FROM messages")} == {m["ts"] for m in messages}
+    db.close()
+
+
+@pytest.mark.parametrize('message,expected', [({'user':'UB','bot_id':'B1'},False),({'app_id':'A1'},False),({'subtype':'bot_message'},False),({'user':'U1','subtype':'channel_join'},False),({'user':'U1','subtype':'file_share'},True),({},True)])
+def test_only_explicit_bot_or_system_authorship_is_excluded(message, expected):
+    from company_context.slack_snapshot import has_human_content
+    assert has_human_content([message | {'ts':'10','text':'content'}]) is expected
+
+
+def test_one_long_timeline_message_keeps_original_text_and_chunk_offsets():
+    from company_context.slack_snapshot import message_block
+    messages=[{'ts':'10','user':'U1','text':'original ' * 5000},{'ts':'11','user':'U2','text':'next'}]
+    groups=conversations(messages,lambda m:len(message_block('https://workspace.slack.com/','C001',m)))
+    assert [[m['ts'] for m in group] for _,group in groups] == [['10'],['11']]
+    row=source(messages[:1],kind='timeline')
+    corpus=Corpus({'principal':'reader','records':[row]})
+    assert ''.join(c['text'] for c in corpus.chunks.values()) == row['text']
+    assert all(len(c['text'])<=3200 for c in corpus.chunks.values())
