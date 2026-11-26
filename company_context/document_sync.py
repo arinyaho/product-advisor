@@ -57,8 +57,12 @@ async def synchronize(root, settings):
         except IncompleteCapture as error:
             status[provider] = {"phase": str(error)}
             continue
+        complete = incoming["collection"].get("capture_complete", True)
+        if not complete and any(r.get("provider_scope", {}).get("provider") == provider for r in old["records"]) and coverage.get(provider, {}).get("capture_id") != incoming["collection"].get("capture_id"):
+            status[provider] = {"phase": "new_capture_in_progress"}
+            continue
         identity = digest(incoming)
-        status[provider] = {"phase": "already_indexed" if imports.get(provider) == identity else "ready_to_index", "sources": len(incoming["records"]), "coverage": incoming["collection"]}
+        status[provider] = {"phase": "already_indexed" if imports.get(provider) == identity and complete else "waiting_for_more_pages" if imports.get(provider) == identity else "ready_to_index", "sources": len(incoming["records"]), "coverage": incoming["collection"]}
         if imports.get(provider) == identity: continue
         existing = {r["source_id"]: r for r in old["records"] if r.get("provider_scope", {}).get("provider") == provider}
         retained = [r for r in incoming["records"] if existing.get(r["source_id"]) == r]
@@ -70,7 +74,7 @@ async def synchronize(root, settings):
             remaining -= 1; remaining_characters -= len(row["text"])
         snapshot["records"] = merge_records(snapshot["records"], sorted(retained + selected, key=lambda r: r["source_id"]), provider)
         count = len(retained) + len(selected)
-        coverage[provider] = {**incoming["collection"], "available_sources": len(incoming["records"]), "indexed_sources": count, "index_complete": count == len(incoming["records"])}
+        coverage[provider] = {**incoming["collection"], "available_sources": len(incoming["records"]), "indexed_sources": count, "index_complete": complete and count == len(incoming["records"])}
         status[provider].update(indexed_sources=len(retained), batch_sources=len(selected), remaining_sources=len(pending))
         if selected: next_provider = providers[(providers.index(provider) + 1) % len(providers)]
         if count == len(incoming["records"]): imports[provider] = identity
@@ -79,14 +83,14 @@ async def synchronize(root, settings):
     write_json(root / "document-ingestion.json", status)
     if not changed:
         return
+    snapshot["collection"].update(kind="company_capture", managed_sources=coverage, completed_at=datetime.now(timezone.utc).isoformat())
     if snapshot["principal"] == old["principal"] and sorted(snapshot["records"], key=lambda r: r["source_id"]) == sorted(old["records"], key=lambda r: r["source_id"]):
-        state["document_imports"] = imports
+        state.update(document_imports=imports, coverage_snapshot=digest(old), verified_collection=snapshot["collection"])
         write_json(state_path, state)
         for entry in status.values():
-            if entry["phase"] == "ready_to_index": entry["phase"] = "indexing" if entry.get("remaining_sources") else "indexed"
+            if entry["phase"] == "ready_to_index": entry["phase"] = "indexing" if entry.get("remaining_sources") else "indexed" if entry["coverage"].get("capture_complete", True) else "waiting_for_more_pages"
         write_json(root / "document-ingestion.json", status)
         return
-    snapshot["collection"].update(kind="company_capture", managed_sources=coverage, completed_at=datetime.now(timezone.utc).isoformat())
     # Persist known withdrawals before ACL or budget failure can reject the candidate.
     withdraw_changed(old if previous else None, snapshot, state, state_path)
     corpus = Corpus(snapshot)
@@ -102,7 +106,7 @@ async def synchronize(root, settings):
             if status[provider]["phase"] == "ready_to_index":
                 status[provider]["indexed_sources"] += status[provider].get("batch_sources", 0)
                 status[provider]["remaining_sources"] -= status[provider].get("batch_sources", 0)
-                status[provider]["phase"] = "indexing" if status[provider]["remaining_sources"] else "indexed"
+                status[provider]["phase"] = "indexing" if status[provider]["remaining_sources"] else "indexed" if status[provider]["coverage"].get("capture_complete", True) else "waiting_for_more_pages"
         write_json(root / "document-ingestion.json", status)
     finally:
         api.client.close()

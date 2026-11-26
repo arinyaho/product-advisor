@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sqlite3
 import time
+import uuid
 
 import httpx
 
@@ -64,6 +65,7 @@ def open_store(path, identity):
         raise ValueError("Capture schema changed; retain the old archive and start a new database")
     with db:
         db.execute("INSERT OR IGNORE INTO metadata VALUES ('capture_schema','2')")
+        db.execute("INSERT OR IGNORE INTO metadata VALUES ('capture_id',?)", (str(uuid.uuid4()),))
         db.executemany("INSERT OR IGNORE INTO metadata VALUES (?,?)", identity.items())
         enqueue(db, "search", "all")
     return db
@@ -142,6 +144,19 @@ def status(db):
     return {"pages": db.execute("SELECT count(*) FROM objects WHERE kind='page'").fetchone()[0], "blocks": db.execute("SELECT count(*) FROM objects WHERE kind='block'").fetchone()[0], "data_sources": db.execute("SELECT count(*) FROM objects WHERE kind='data_source'").fetchone()[0], "tasks": db.execute("SELECT count(*) FROM tasks").fetchone()[0], "completed_tasks": db.execute("SELECT count(*) FROM tasks WHERE done=1").fetchone()[0], "failed_tasks": db.execute("SELECT count(*) FROM tasks WHERE error IS NOT NULL").fetchone()[0], "omissions": db.execute("SELECT count(*) FROM omissions").fetchone()[0], "model_calls": 0, "index_published": False}
 
 
+def omission_reason(kind, error):
+    if not isinstance(error, httpx.HTTPStatusError): return None
+    code = error.response.status_code
+    if kind == "comments" and code in (403, 404): return "comments_not_accessible"
+    if code != 400: return None
+    try: detail = error.response.json()
+    except ValueError: return None
+    if not isinstance(detail, dict) or detail.get("code") != "validation_error": return None
+    if kind == "children" and detail.get("message") == "Block type external_object_instance_page is not supported via the API.": return "api_unsupported_block"
+    if kind == "property" and detail.get("message") == "Invalid relations found in rollup.": return "invalid_rollup_relations"
+    return None
+
+
 def collect(api, db):
     if dict(db.execute("SELECT key,value FROM metadata")).get("finished_at") and not db.execute("SELECT count(*) FROM tasks WHERE done=0 OR error IS NOT NULL").fetchone()[0]:
         return status(db)
@@ -174,10 +189,11 @@ def collect(api, db):
                 db.execute("UPDATE tasks SET cursor=?,consumed=?,done=?,error=? WHERE kind=? AND id=?", (following, offset + len(items), int(not following and not truncated), "incomplete_query" if truncated and not following else None, kind, identity))
         except (httpx.HTTPError, ValueError, RuntimeError) as error:
             code = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else type(error).__name__
+            reason = omission_reason(kind, error)
             with db:
-                if kind == "comments" and code in (403, 404):
-                    db.execute("INSERT OR IGNORE INTO omissions VALUES (?,?,?)", (kind, identity, "comments_not_accessible"))
-                    db.execute("UPDATE tasks SET done=1 WHERE kind=? AND id=?", (kind, identity))
+                if reason:
+                    db.execute("INSERT OR IGNORE INTO omissions VALUES (?,?,?)", (kind, identity, reason))
+                    db.execute("UPDATE tasks SET done=1,error=NULL WHERE kind=? AND id=?", (kind, identity))
                 else:
                     db.execute("UPDATE tasks SET error=? WHERE kind=? AND id=?", (str(code), kind, identity))
         print(json.dumps(status(db)), flush=True)
