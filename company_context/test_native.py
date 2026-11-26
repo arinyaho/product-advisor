@@ -145,3 +145,28 @@ def test_real_mcp_calls_authentication_rotation_and_source_read(tmp_path):
         assert tool_result(response)["text"] == record()["text"]
         token_file.write_text("rotated-synthetic-token-not-a-secret-1234")
         assert client.post("/mcp", headers=headers, json=payload).status_code == 401
+
+
+@pytest.mark.parametrize("building", [False, True])
+def test_embedding_worker_allows_response_within_model_request_timeout(monkeypatch, tmp_path, building):
+    original_wait_for = asyncio.wait_for
+
+    async def scaled_wait_for(awaitable, timeout):
+        # Exercise the real queue's deadlines without spending minutes on a slow response.
+        return await original_wait_for(awaitable, timeout / 1000 if timeout is not None and timeout >= 30 else timeout)
+
+    class SlowModels(SyntheticModels):
+        async def embed(self, texts):
+            await asyncio.sleep(.09)
+            return await super().embed(texts)
+
+    monkeypatch.setattr(asyncio, "wait_for", scaled_wait_for)
+
+    async def run():
+        rag = engine(tmp_path, SlowModels(), building=building)
+        try:
+            result = await rag.embedding_func(["slow synthetic response"])
+            assert result.tolist() == np.asarray([[1., .1, .1, .1]], dtype=np.float32).tolist()
+        finally:
+            await close_engine(rag)
+    asyncio.run(run())

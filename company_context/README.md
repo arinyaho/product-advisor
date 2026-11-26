@@ -101,6 +101,8 @@ Automatic ingestion requires `cost_ceiling` for both configured models. Each ent
 
 Receipts also retain the HTTP status and exception type without provider response bodies. After investigating a failure, an operator can append a receipt for the same call with `status=reviewed_failure_cost_reserved` and a nonempty `operator_review`, retaining its full conservative cost. Restoration uses the maximum reserved cost from the original failure history for a reviewed failure, even if the appended review incorrectly supplies a smaller amount. The original failure remains in the ledger. This is never automatic; restarting after that explicit review permits new calls within the remaining cumulative budget. A failed sync candidate still requires separate operator review and a new attempt identity.
 
+HTTPX model requests use a 180-second inactivity timeout, not a total request deadline. LightRAG 1.5.7 receives the same embedding timeout setting, producing a 360-second worker deadline instead of its default 60 seconds. A request that continues transferring data can still exceed the worker deadline; cancellation retains its full reservation and stops subsequent model calls without automatic replay.
+
 For Codex access, run `company_context.proxy` over authenticated SSH to the company host with `--token-file /private/mcp-token`. If the service uses a different port, pass the same `--port` to the proxy; both default to `8766`. The proxy reads the token on that host and connects to the loopback HTTP service. No token or company corpus is copied into the client configuration.
 
 ## Advisor integration and acceptance

@@ -24,6 +24,7 @@ import numpy as np
 
 
 ENGINE_VERSION = "1.5.7"
+MODEL_TIMEOUT_SECONDS = 180
 CHUNK_CHARACTERS = 1600
 PRIVATE_NETWORKS = tuple(ipaddress.ip_network(value) for value in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "fc00::/7", "::1/128",
@@ -329,7 +330,7 @@ class Models:
         receipt["status"] = "failed_cost_unknown"
         failure = "Configured model request failed; inspect the private receipt"
         try:
-            async with httpx.AsyncClient(timeout=180, follow_redirects=False, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=MODEL_TIMEOUT_SECONDS, follow_redirects=False, trust_env=False) as client:
                 response = await client.post(base + endpoint, json=payload, headers=headers)
                 receipt["http_status"] = response.status_code
                 response.raise_for_status()
@@ -390,6 +391,7 @@ def engine(directory, models, *, building=False, workspace=None):
         embedding_func=EmbeddingFunc(embedding_dim=models.config["dimensions"], max_token_size=8192, model_name=models.config["embedding_model"], func=embed),
         llm_model_func=extract, llm_model_name=models.config["chat_model"],
         llm_model_max_async=1, embedding_func_max_async=1, max_parallel_insert=1,
+        default_embedding_timeout=MODEL_TIMEOUT_SECONDS,
         enable_llm_cache=building, enable_llm_cache_for_entity_extract=building,
     )
 
