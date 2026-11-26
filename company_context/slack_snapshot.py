@@ -21,6 +21,10 @@ def iso(ts):
     return datetime.fromtimestamp(float(ts), timezone.utc).isoformat()
 
 
+def capture_epoch(metadata):
+    return metadata.get("capture_started_at") or iso(metadata["until"])
+
+
 def permalink(workspace, channel, ts):
     return f"{workspace.rstrip('/')}/archives/{channel}/p{ts.replace('.', '')}"
 
@@ -141,7 +145,7 @@ def export_snapshot(db, previous=None, *, allowed_channels=None):
         if old and {k: v for k, v in old.items() if k != "collected_at"} == {k: v for k, v in record.items() if k != "collected_at"}:
             record["collected_at"] = old["collected_at"]
     return {"principal": f"slack:{meta['team_id']}:{meta['reader']}", "records": records, "collection": {
-        "kind": "slack_channel_capture", "since": iso(meta["since"]), "through": iso(meta["until"]),
+        "kind": "slack_channel_capture", "since": iso(meta["since"]), "through": iso(meta["until"]), "slack_capture_started_at": capture_epoch(meta),
         "completed_at": meta["completed_at"], "channels": len(visible_channels), "raw_channels": progress["channels"],
         "channel_ids": visible_channels, "access_excluded_channel_ids": access_excluded_channels, "access_excluded_messages": access_excluded_messages,
         "messages": progress["messages"], "eligible_messages": progress["messages"] - excluded_messages - access_excluded_messages,

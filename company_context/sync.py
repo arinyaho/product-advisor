@@ -13,7 +13,7 @@ import tempfile
 
 from company_context.collect_slack import Slack, collect, inventory, open_store
 from company_context.context import Corpus, Models, build, close_engine, open_index, slack_channel_id, digest, index_config, timestamp
-from company_context.slack_snapshot import export_snapshot
+from company_context.slack_snapshot import capture_epoch, export_snapshot
 
 
 def write_json(path, value):
@@ -62,6 +62,12 @@ def availability(corpus, access_path=None, sync_path=None):
             channels = {slack_channel_id(u) for r in corpus.records.values() for u in [r["url"], *r.get("derived_from", [])]} - {None}
             if not channels <= set(access["channel_ids"]):
                 return "blocked_channel_access_changed"
+            coverage = reported_coverage(corpus.snapshot, corpus.version, sync_path)
+            for row in corpus.records.values():
+                epoch = coverage.get("slack_capture_started_at", row["collected_at"]) if row["source_type"] == "slack" and isinstance(coverage, dict) else row["collected_at"]
+                dependencies = {slack_channel_id(url) for url in [row["url"], *row.get("derived_from", [])]} - {None}
+                if any(channel in access.get("revoked_channels", {}) and timestamp(access["revoked_channels"][channel]) >= timestamp(epoch) for channel in dependencies):
+                    return "blocked_observed_channel_revocation"
         if any("provider_scope" in r for r in corpus.records.values()):
             if not access_path:
                 return "blocked_document_access_missing"
@@ -305,12 +311,14 @@ async def synchronize(args):
                 with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as saved:
                     bounds = dict(saved.execute("SELECT key,value FROM metadata"))
                 since, until = float(bounds["since"]), float(bounds["until"])
+                if any(timestamp(value) >= timestamp(capture_epoch(bounds)) for value in access.get("revoked_channels", {}).values()):
+                    database = root / ("capture-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f") + ".sqlite")
             state.update(phase="collecting", pending_database=str(database), pending_until=until)
             write_json(state_path, state)
             db = open_store(database, since, until)
             prior = sqlite3.connect(f"file:{state['last_database']}?mode=ro", uri=True) if state.get("last_database") else None
             if prior:
-                prior_time = timestamp(dict(prior.execute("SELECT key,value FROM metadata"))["completed_at"])
+                prior_time = timestamp(capture_epoch(dict(prior.execute("SELECT key,value FROM metadata"))))
                 if any(timestamp(value) >= prior_time for value in access.get("revoked_channels", {}).values()):
                     prior.close(); prior = None
             try:
@@ -325,7 +333,7 @@ async def synchronize(args):
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as db:
             if state.get("slack_batch_database"):
                 captured_channels = {row[0] for row in db.execute("SELECT id FROM channels")}
-                captured_at = timestamp(dict(db.execute("SELECT key,value FROM metadata"))["completed_at"])
+                captured_at = timestamp(capture_epoch(dict(db.execute("SELECT key,value FROM metadata"))))
                 observed_revocations = {channel for channel, revoked_at in access.get("revoked_channels", {}).items() if timestamp(revoked_at) >= captured_at}
                 excluded = set(state.get("slack_batch_excluded_channels", [])) | (captured_channels - set(access["channel_ids"])) | (captured_channels & observed_revocations)
                 state["slack_batch_excluded_channels"] = sorted(excluded)

@@ -111,3 +111,38 @@ def test_document_publication_inherits_latest_verified_slack_coverage(tmp_path,m
     asyncio.run(document_sync.synchronize(tmp_path,settings))
     assert observed[0]['collection']['through']=='2026-11-26T00:00:00Z'
     assert observed[0]['collection']['bot_only_messages_excluded']==10
+
+
+def test_known_revocation_after_export_blocks_dispatch_publication_and_reads(tmp_path):
+    from datetime import datetime,timezone
+    from company_context.context import Corpus
+    corpus=Corpus({'principal':'slack:T1:U1','records':[record('stale')],'collection':{'slack_capture_started_at':'2026-11-24T00:00:00Z'}})
+    access=tmp_path/'access.json'
+    access.write_text(json.dumps({'principal':'slack:T1:U1','channel_ids':['C001'],'checked_at':datetime.now(timezone.utc).isoformat(),'revoked_channels':{'C001':'2026-11-25T00:00:00Z'}}))
+    assert sync.availability(corpus,access)=='blocked_observed_channel_revocation'
+    with pytest.raises(ValueError,match='access'):
+        sync.require_access(corpus,access)
+
+
+def test_revocation_discards_pending_checkpoints_without_deleting_archive(tmp_path,monkeypatch):
+    import sqlite3
+    args=setup_sync(tmp_path,monkeypatch,messages=[{'ts':'12','text':'old body','user':'U1'}])
+    with sqlite3.connect(args.bootstrap_database) as db:
+        db.execute('INSERT OR REPLACE INTO metadata VALUES (?,?)',('capture_started_at','2026-11-24T00:00:00Z'))
+    (tmp_path/'sync.json').write_text(json.dumps({'phase':'collecting','pending_database':str(args.bootstrap_database),'pending_until':20}))
+    def access(*a):
+        value={'principal':'slack:T1:U1','channel_ids':['C001'],'revoked_channels':{'C001':'2026-11-25T00:00:00Z'}}
+        return value
+    monkeypatch.setattr(sync,'refresh_access',access)
+    observed=[]
+    def collect(api,db,since,until,previous=None):
+        observed.append(db.execute('PRAGMA database_list').fetchone()[2])
+        assert db.execute('SELECT count(*) FROM messages').fetchone()[0]==0
+        assert db.execute('SELECT count(*) FROM channels').fetchone()[0]==0
+        raise RuntimeError('new capture started')
+    monkeypatch.setattr(sync,'collect',collect)
+    with pytest.raises(RuntimeError,match='new capture started'):
+        asyncio.run(sync.synchronize(args))
+    assert observed != [str(args.bootstrap_database)]
+    with sqlite3.connect(args.bootstrap_database) as db:
+        assert db.execute('SELECT ts FROM messages').fetchall()==[('12',)]
