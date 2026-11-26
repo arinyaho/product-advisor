@@ -121,3 +121,10 @@ def test_one_long_timeline_message_keeps_original_text_and_chunk_offsets():
     corpus=Corpus({'principal':'reader','records':[row]})
     assert ''.join(c['text'] for c in corpus.chunks.values()) == row['text']
     assert all(len(c['text'])<=3200 for c in corpus.chunks.values())
+
+
+def test_whitespace_is_preserved_and_archive_notices_are_system_only():
+    from company_context.slack_snapshot import has_human_content, message_block
+    original=' \t\n  '
+    assert message_block('https://workspace.slack.com/','C001',{'ts':'10','user':'U1','text':original}).endswith('\n'+original+'\n\n')
+    assert not has_human_content([{'ts':'10','user':'U1','subtype':'channel_archive'},{'ts':'11','user':'U1','subtype':'channel_unarchive'}])

@@ -122,6 +122,17 @@ def accept_mcp(client, corpus):
             raise ValueError("MCP returned a different source")
 
 
+def reported_coverage(corpus, state_path):
+    if state_path and Path(state_path).exists():
+        try:
+            state = json.loads(Path(state_path).read_text())
+            if state.get("coverage_snapshot") == corpus.version and isinstance(state.get("verified_collection"), dict):
+                return state["verified_collection"]
+        except (OSError, ValueError):
+            pass
+    return corpus.snapshot.get("collection", "explicit_snapshot_not_all_company_knowledge")
+
+
 def progress(state_path):
     if not state_path or not Path(state_path).exists():
         return None
@@ -304,7 +315,14 @@ async def synchronize(args):
         # Check ACL again after the potentially long capture, before any model request.
         access = refresh_access(api, root / "access.json")
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as db:
-            snapshot = export_snapshot(db, previous_snapshot)
+            if state.get("slack_batch_database"):
+                captured_channels = {row[0] for row in db.execute("SELECT id FROM channels")}
+                excluded = set(state.get("slack_batch_excluded_channels", [])) | (captured_channels - set(access["channel_ids"]))
+                state["slack_batch_excluded_channels"] = sorted(excluded)
+                write_json(state_path, state)
+                snapshot = export_snapshot(db, previous_snapshot, allowed_channels=set(access["channel_ids"]) - excluded)
+            else:
+                snapshot = export_snapshot(db, previous_snapshot)
         if snapshot["principal"] != access["principal"]:
             raise ValueError("Reader or channel access changed during capture")
         withdraw_changed(previous_snapshot, snapshot, state, state_path, slack_only=True)
@@ -348,11 +366,11 @@ async def synchronize(args):
         snapshot["records"] = [r for r in snapshot["records"] if r["source_type"] != "slack"] + retained + selected
         complete = len(retained) + len(selected) == len(slack_rows)
         snapshot["collection"]["slack_indexing"] = {"available_sources": len(slack_rows), "indexed_sources": len(retained) + len(selected), "complete": complete}
-        updates = {"last_database": str(database), "slack_batch_database": None if complete else str(database)}
+        updates = {"last_database": str(database), "slack_batch_database": None if complete else str(database), "slack_batch_excluded_channels": [] if complete else state.get("slack_batch_excluded_channels", [])}
         corpus = Corpus(snapshot)
         require_access(corpus, root / "access.json")
         if previous_snapshot and sorted(previous_snapshot["records"], key=lambda r: r["source_id"]) == sorted(snapshot["records"], key=lambda r: r["source_id"]):
-            state.update(phase="unchanged", last_collected_at=snapshot["collection"]["completed_at"], **updates)
+            state.update(phase="unchanged", last_collected_at=snapshot["collection"]["completed_at"], coverage_snapshot=digest(previous_snapshot), verified_collection=snapshot["collection"], **updates)
             state.pop("pending_database", None); state.pop("pending_until", None)
             write_json(state_path, state)
             return

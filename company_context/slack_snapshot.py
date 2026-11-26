@@ -14,7 +14,7 @@ CHUNK_TARGET = 3200
 TIMELINE_GAP = 30 * 60
 TIMELINE_MESSAGES = 100
 TIMELINE_CHARACTERS = 32_000
-SYSTEM_EVENTS = {"channel_join", "channel_leave", "group_join", "group_leave", "bot_add", "bot_remove", "tombstone"}
+SYSTEM_EVENTS = {"channel_join", "channel_leave", "group_join", "group_leave", "bot_add", "bot_remove", "tombstone", "channel_archive", "channel_unarchive", "group_archive", "group_unarchive"}
 
 
 def iso(ts):
@@ -50,7 +50,7 @@ def conversations(messages, measure=lambda m: len(m.get("text", ""))):
 
 def message_block(workspace, channel, message):
     body = message.get("text", "")
-    if not body.strip():
+    if not body:
         body = "[No message text; attachment contents are not collected.]"
     author = message.get("user") or message.get("bot_id")
     return f"[{iso(message['ts'])} | {author or 'unknown author'} | {permalink(workspace, channel, message['ts'])}]\n{body}\n\n"
@@ -109,7 +109,7 @@ def chunk_ranges(source):
         yield start, end
 
 
-def export_snapshot(db, previous=None):
+def export_snapshot(db, previous=None, *, allowed_channels=None):
     meta = dict(db.execute("SELECT key,value FROM metadata"))
     progress = status(db)
     if not meta.get("completed_at") or progress["failed_channels"] or progress["channels"] != progress["complete_channels"]:
@@ -117,7 +117,13 @@ def export_snapshot(db, previous=None):
     if not all(meta.get(key) for key in ("reader", "team_id", "workspace_url", "since", "until")):
         raise ValueError("Capture is missing its authenticated reader, workspace or interval")
     records, excluded_messages, excluded_groups = [], 0, 0
+    access_excluded_channels, access_excluded_messages, visible_channels = [], 0, []
     for identity, encoded in db.execute("SELECT id,info FROM channels ORDER BY id"):
+        if allowed_channels is not None and identity not in allowed_channels:
+            access_excluded_channels.append(identity)
+            access_excluded_messages += db.execute("SELECT count(*) FROM messages WHERE channel=?", (identity,)).fetchone()[0]
+            continue
+        visible_channels.append(identity)
         info = json.loads(encoded)
         if info["id"] != identity or not channel_allowed(info):
             raise ValueError("Capture contains an unclassified or inaccessible conversation")
@@ -136,9 +142,9 @@ def export_snapshot(db, previous=None):
             record["collected_at"] = old["collected_at"]
     return {"principal": f"slack:{meta['team_id']}:{meta['reader']}", "records": records, "collection": {
         "kind": "slack_channel_capture", "since": iso(meta["since"]), "through": iso(meta["until"]),
-        "completed_at": meta["completed_at"], "channels": progress["channels"],
-        "channel_ids": [row[0] for row in db.execute("SELECT id FROM channels ORDER BY id")],
-        "messages": progress["messages"], "eligible_messages": progress["messages"] - excluded_messages,
+        "completed_at": meta["completed_at"], "channels": len(visible_channels), "raw_channels": progress["channels"],
+        "channel_ids": visible_channels, "access_excluded_channel_ids": access_excluded_channels, "access_excluded_messages": access_excluded_messages,
+        "messages": progress["messages"], "eligible_messages": progress["messages"] - excluded_messages - access_excluded_messages,
         "bot_only_messages_excluded": excluded_messages, "bot_only_groups_excluded": excluded_groups,
         "slack_source_policy": {"version": 2, "bot_system_only_groups": "raw_archive_only", "human_threads": "all_captured_replies", "timeline_seconds": TIMELINE_GAP, "timeline_messages": TIMELINE_MESSAGES, "timeline_characters": TIMELINE_CHARACTERS, "single_message_may_exceed_timeline_target": True},
         "credential_messages_omitted": progress["credential_messages_omitted"],
