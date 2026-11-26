@@ -152,3 +152,20 @@ def test_slack_publication_preserves_verified_notion_completion(tmp_path, monkey
     monkeypatch.setattr(sync, 'publish_snapshot', publish)
     asyncio.run(sync.synchronize(args))
     assert observed[0]['collection']['managed_sources'] == verified['managed_sources']
+
+
+def test_withheld_page_metadata_needs_retained_body_not_a_generated_title(tmp_path):
+    path = tmp_path/'capture.sqlite'
+    db = open_store(path, {'workspace_id':'W','connection_id':'bot1'})
+    with db:
+        for identity in ('empty','safe'):
+            retain(db, {'object':'page','id':identity,'properties':{},'text':'sk-'+'s'*24}, ('search','all'), 0)
+            retain(db, {'object':'response_metadata','id':'children:'+identity+':','response':{'object':'list'}}, ('children',identity), -1)
+        retain(db, {'object':'block','id':'body','type':'paragraph','paragraph':{'rich_text':[{'plain_text':'Safe retained decision'}]}}, ('children','safe'), 0)
+        db.execute('UPDATE tasks SET done=1')
+    result = export_capture('notion', {'database':str(path),'workspace_id':'W','connection_id':'bot1','allow_partial':True}, READER)
+    assert {r['source_id'] for r in result['records']} == {'notion:W:safe'}
+    assert 'Safe retained decision' in result['records'][0]['text']
+    assert result['collection']['empty_withheld_pages'] == 1
+    assert 'no_retained_content' not in result['collection']['export_omissions']
+    db.close()
