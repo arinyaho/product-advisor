@@ -34,7 +34,9 @@ async def synchronize(root, settings):
     try:
         return await _synchronize(root, settings)
     finally:
-        (root / "document-preflight.json").unlink(missing_ok=True)
+        with (root / "document-access.lock").open("a") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            (root / "document-preflight.json").unlink(missing_ok=True)
 
 
 async def _synchronize(root, settings):

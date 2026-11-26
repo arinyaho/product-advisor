@@ -319,3 +319,23 @@ def test_inventory_refresh_includes_preflight_and_current_under_its_lock(tmp_pat
     result = document_sources.refresh_document_access(tmp_path, settings, [{'records':[doc()]}])
     assert set(calls) == {'users/me','pages/p1','pages/p2'}
     assert set(result['providers']['notion']['resource_ids']) == {'p1','p2'}
+
+
+def test_preflight_cleanup_waits_for_inventory_scan_lock(tmp_path, monkeypatch):
+    import fcntl
+    import os
+    preflight = tmp_path/'document-preflight.json'
+    preflight.write_text('{}')
+    locked = []
+    original = fcntl.flock
+    def lock(fd, operation):
+        assert os.fstat(fd.fileno()).st_ino == (tmp_path/'document-access.lock').stat().st_ino
+        assert preflight.exists()
+        locked.append(operation)
+        return original(fd, operation)
+    async def run(*a): return None
+    monkeypatch.setattr(document_sync, '_synchronize', run)
+    monkeypatch.setattr(document_sync.fcntl, 'flock', lock)
+    asyncio.run(document_sync.synchronize(tmp_path, {}))
+    assert locked == [fcntl.LOCK_EX]
+    assert not preflight.exists()
