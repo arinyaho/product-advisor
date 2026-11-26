@@ -308,7 +308,7 @@ class Models:
             if not payload["input"] or any(not isinstance(v, str) or len(v.encode()) + 1024 > context for v in payload["input"]):
                 raise ValueError("Embedding input exceeds the configured context bound")
             amount = len(payload["input"]) * context * prices["prompt"] * multiplier / 1_000_000
-        payload["provider"] = {"max_price": prices, "allow_fallbacks": False}
+        payload["provider"] = {"max_price": prices, "allow_fallbacks": kind == "chat"}
         if kind == "chat": payload["provider"]["require_parameters"] = True
         return amount + prices["request"] + .000001
 
@@ -333,6 +333,33 @@ class Models:
             async with httpx.AsyncClient(timeout=MODEL_TIMEOUT_SECONDS, follow_redirects=False, trust_env=False) as client:
                 response = await client.post(base + endpoint, json=payload, headers=headers)
                 receipt["http_status"] = response.status_code
+                if response.is_error:
+                    diagnostics = {}
+                    for field in ("retry-after", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"):
+                        value = response.headers.get(field, "")
+                        if re.fullmatch(r"[0-9]{1,16}", value):
+                            diagnostics[field] = int(value)
+                    try:
+                        body = response.json()
+                    except (ValueError, RecursionError):
+                        body = None
+                    error = body.get("error") if isinstance(body, dict) else None
+                    metadata = error.get("metadata") if isinstance(error, dict) else None
+                    if isinstance(metadata, dict):
+                        # Provider messages and arbitrary metadata can echo private source text.
+                        for field, allowed in {
+                            "error_type": {"rate_limit_exceeded", "provider_overloaded", "provider_unavailable", "timeout", "server", "unmapped"},
+                            "limit_source": {"openrouter_credits", "openrouter_key_limit", "openrouter_in_flight_budget", "openrouter_guardrail_budget", "openrouter_workspace_budget"},
+                            "reason": {"in_flight_budget_exhausted", "weight_exceeds_budget"},
+                        }.items():
+                            value = metadata.get(field)
+                            if isinstance(value, str) and value in allowed:
+                                diagnostics[field] = value
+                        code = metadata.get("provider_code")
+                        if (isinstance(code, str) and code.strip()) or (type(code) is int and 100 <= code <= 599):
+                            diagnostics["provider_code_present"] = True
+                    if diagnostics:
+                        receipt["failure_metadata"] = diagnostics
                 response.raise_for_status()
                 result = response.json()
                 usage = result.get("usage", {})
