@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import time
 import subprocess
@@ -158,6 +159,25 @@ def status(db):
     return {"files": db.execute("SELECT count(*) FROM files").fetchone()[0], "states": dict(db.execute("SELECT status,count(*) FROM files GROUP BY status")), "pending_scopes": db.execute("SELECT count(*) FROM scopes WHERE done=0").fetchone()[0], "model_calls": 0, "index_published": False}
 
 
+def retry_capture_errors(db):
+    with db:
+        db.execute("CREATE TABLE IF NOT EXISTS operator_retries(at TEXT,id TEXT,previous_error TEXT)")
+        selected = list(db.execute("SELECT id,reason FROM files WHERE status='failed' AND reason IN ('UnicodeEncodeError','drive_http_404')"))
+        at = datetime.now(timezone.utc).isoformat()
+        db.executemany("INSERT INTO operator_retries VALUES (?,?,?)", [(at, identity, error) for identity, error in selected])
+        db.executemany("UPDATE files SET status='pending',reason=NULL WHERE id=?", [(identity,) for identity, _ in selected])
+    return len(selected)
+
+
+def capture_metadata(api, identity, omission="file_not_accessible"):
+    try:
+        return api.metadata(identity)
+    except RuntimeError as error:
+        if str(error) == "drive_http_404":
+            raise Omitted(omission) from None
+        raise
+
+
 def collect(api, db):
     if dict(db.execute("SELECT key,value FROM metadata")).get("finished_at") and not db.execute("SELECT count(*) FROM scopes WHERE done=0").fetchone()[0] and not db.execute("SELECT count(*) FROM files WHERE status IN ('pending','failed')").fetchone()[0]:
         return status(db)
@@ -184,19 +204,22 @@ def collect(api, db):
     while pending := db.execute("SELECT id FROM files WHERE status='pending' ORDER BY id LIMIT 1").fetchone():
         identity = pending[0]
         try:
-            item = api.metadata(identity)
+            item = capture_metadata(api, identity)
             if item.get("trashed"): raise Omitted("trashed")
             if SECRET.search(json.dumps(item)): raise Omitted("credential_pattern")
             if item["mimeType"] == "application/vnd.google-apps.shortcut":
-                target = api.metadata(item["shortcutDetails"]["targetId"])
+                target = capture_metadata(api, item["shortcutDetails"]["targetId"], "shortcut_target_not_accessible")
                 if SECRET.search(json.dumps(target)): raise Omitted("credential_pattern")
                 with db: db.execute("INSERT OR IGNORE INTO files(id,metadata) VALUES (?,?)", (target["id"], json.dumps(target, ensure_ascii=False)))
                 raise Omitted("shortcut_target_queued")
             text, coverage = api.content(item)
+            if re.search(r"[\ud800-\udfff]", text):
+                text = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+                coverage += "; Unicode surrogate pairs normalized and malformed surrogates replaced"
             if not text.strip(): raise Omitted("no_text_layer_or_empty")
             if len(text) > 2_000_000: raise Omitted("text_size_limit")
             if SECRET.search(text) or SECRET.search(json.dumps(item)): raise Omitted("credential_pattern")
-            after = api.metadata(identity)
+            after = capture_metadata(api, identity)
             if (item.get("version"), item.get("modifiedTime")) != (after.get("version"), after.get("modifiedTime")) or after.get("trashed"):
                 raise RuntimeError("source_changed_during_capture")
             with db:
@@ -217,6 +240,7 @@ def main():
     parser.add_argument("--credentials-file", required=True)
     parser.add_argument("--email", required=True)
     parser.add_argument("--database", type=Path, required=True)
+    parser.add_argument("--retry-capture-errors", action="store_true")
     args = parser.parse_args()
     args.database.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with args.database.with_suffix(".lock").open("a") as lock:
@@ -224,6 +248,8 @@ def main():
         api = Drive(args.credentials_file, args.email)
         db = open_store(args.database, api.identity)
         try:
+            if args.retry_capture_errors:
+                print(json.dumps({"capture_reads_requeued": retry_capture_errors(db)}), flush=True)
             result = collect(api, db)
             if result["states"].get("failed", 0): raise SystemExit(1)
         finally:

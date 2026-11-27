@@ -61,3 +61,65 @@ def test_native_text_runs_include_nested_tabs_tables_and_notes():
     value = [{"documentTab": {"body": {"content": [{"textRun": {"content": "First"}}]}}, "childTabs": [{"textRun": {"content": "Second"}}]}, {"notesPage": {"table": [{"textRun": {"content": "Notes"}}]}}]
     assert text_runs(value) == "FirstSecondNotes"
     assert extract(b"original\ntext", "text/plain")[0] == "original\ntext"
+
+
+def test_capture_handles_malformed_pdf_text_and_only_metadata_404(tmp_path):
+    class Recovery(API):
+        def scopes(self): return ["user"]
+        def page(self, scope, cursor):
+            return {"files": [{"id": identity, "mimeType": "text/plain"} for identity in
+                              ("pdf", "missing", "shortcut", "media", "vanished")]}
+        def metadata(self, identity):
+            if identity in ("missing", "target") or (identity == "vanished" and identity in self.contents):
+                raise RuntimeError("drive_http_404")
+            item = super().metadata(identity)
+            if identity == "shortcut":
+                return {**item, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "target"}}
+            if identity == "pdf":
+                return {**item, "mimeType": "application/pdf"}
+            return item
+        def content(self, item):
+            if item["id"] == "media":
+                raise RuntimeError("drive_http_404")
+            if item["id"] == "pdf":
+                return "Before \ud800 valid pair \ud83d\ude00 after", "PDF text"
+            return super().content(item)
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    collect(Recovery(), db)
+    assert set(db.execute("SELECT id,status,reason,text FROM files")) == {
+        ("pdf", "ready", None, "Before \ufffd valid pair \U0001f600 after"),
+        ("missing", "omitted", "file_not_accessible", None),
+        ("shortcut", "omitted", "shortcut_target_not_accessible", None),
+        ("media", "failed", "drive_http_404", None),
+        ("vanished", "omitted", "file_not_accessible", None),
+    }
+    assert "malformed surrogate" in db.execute("SELECT coverage FROM files WHERE id='pdf'").fetchone()[0]
+    assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+    db.close()
+
+
+def test_operator_requeues_only_known_failures_without_rewriting_history(tmp_path):
+    from company_context.collect_drive import retry_capture_errors
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    with db:
+        db.executemany("INSERT INTO files(id,metadata,status,reason) VALUES (?,'{}',?,?)", [
+            ("pdf", "failed", "UnicodeEncodeError"),
+            ("missing", "failed", "drive_http_404"),
+            ("unknown", "failed", "drive_http_403"),
+            ("ready", "ready", None),
+            ("omitted", "omitted", "unsupported_mime_type"),
+        ])
+    assert retry_capture_errors(db) == 2
+    assert retry_capture_errors(db) == 0
+    assert set(db.execute("SELECT id,status,reason FROM files")) == {
+        ("pdf", "pending", None), ("missing", "pending", None),
+        ("unknown", "failed", "drive_http_403"), ("ready", "ready", None),
+        ("omitted", "omitted", "unsupported_mime_type"),
+    }
+    assert set(db.execute("SELECT id,previous_error FROM operator_retries")) == {
+        ("pdf", "UnicodeEncodeError"), ("missing", "drive_http_404"),
+    }
+    db.close()
