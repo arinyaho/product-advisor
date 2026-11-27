@@ -253,3 +253,27 @@ def test_shortcut_key_evidence_is_carried_to_the_queued_target(tmp_path, state):
     }
     assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
     db.close()
+
+
+@pytest.mark.parametrize("keyed_scope", ["user", "shared"])
+def test_duplicate_inventory_retains_file_and_shortcut_key_evidence(tmp_path, keyed_scope):
+    class Duplicate(API):
+        def page(self, scope, cursor):
+            details = {"targetId": "target"}
+            plain = {"id": "file", "mimeType": "text/plain"}
+            if scope == keyed_scope:
+                plain["resourceKeyPresent"] = True
+                details["targetResourceKeyPresent"] = True
+            return {"files": [plain, {"id": "shortcut", "mimeType": "application/vnd.google-apps.shortcut",
+                                      "shortcutDetails": details}]}
+
+        def metadata(self, identity):
+            if identity == "shortcut":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "target"}}
+            raise RuntimeError("drive_http_404")
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    assert collect(Duplicate(), db)["states"] == {"failed": 2}
+    assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+    db.close()

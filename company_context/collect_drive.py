@@ -167,6 +167,7 @@ def open_store(path, identity):
     db = sqlite3.connect(path); path.chmod(0o600)
     db.executescript("""
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS keyed_resources(id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS scopes(id TEXT PRIMARY KEY,cursor TEXT NOT NULL DEFAULT '',done INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY,metadata TEXT NOT NULL,text TEXT,coverage TEXT,sha256 TEXT,collected_at TEXT,status TEXT NOT NULL DEFAULT 'pending',reason TEXT);
     """)
@@ -199,6 +200,22 @@ def has_resource_key(item):
     )
 
 
+def remember_keys(db, item):
+    shortcut = item.get("shortcutDetails", {})
+    if has_resource_key(item):
+        db.execute("INSERT OR IGNORE INTO keyed_resources VALUES (?)", (item["id"],))
+    if shortcut.get("targetResourceKeyPresent") and shortcut.get("targetId"):
+        db.execute("INSERT OR IGNORE INTO keyed_resources VALUES (?)", (shortcut["targetId"],))
+
+
+def known_key(db, identity):
+    if db.execute("SELECT 1 FROM keyed_resources WHERE id=?", (identity,)).fetchone():
+        return True
+    # Older captures recorded evidence on the file itself.
+    row = db.execute("SELECT metadata FROM files WHERE id=?", (identity,)).fetchone()
+    return bool(row and has_resource_key(json.loads(row[0])))
+
+
 def capture_metadata(api, identity, omission="file_not_accessible", *, resource_key_present=False):
     try:
         return api.metadata(identity)
@@ -226,6 +243,8 @@ def collect(api, db):
                 for item in page.get("files", []):
                     secret = bool(SECRET.search(json.dumps(item)))
                     safe = {"id": item["id"], "mimeType": item["mimeType"]} if secret else item
+                    if not secret:
+                        remember_keys(db, item)
                     db.execute("INSERT OR IGNORE INTO files(id,metadata,status,reason) VALUES (?,?,?,?)", (item["id"], json.dumps(safe, ensure_ascii=False), "omitted" if secret else "pending", "credential_pattern" if secret else None))
                 db.execute("UPDATE scopes SET cursor=?,done=? WHERE id=?", (following, int(not following), scope))
             print(json.dumps(status(db)), flush=True)
@@ -235,7 +254,9 @@ def collect(api, db):
         identity, raw_metadata = pending
         try:
             saved = json.loads(raw_metadata)
-            saved_key = has_resource_key(saved)
+            with db:
+                remember_keys(db, saved)
+            saved_key = known_key(db, identity)
             item = capture_metadata(api, identity, resource_key_present=saved_key)
             if item.get("trashed"): raise Omitted("trashed")
             if SECRET.search(json.dumps(item)): raise Omitted("credential_pattern")
@@ -249,10 +270,11 @@ def collect(api, db):
             # Preserve observed key evidence even if a later content or metadata read fails.
             if has_resource_key(item) or shortcut.get("targetResourceKeyPresent"):
                 with db:
+                    remember_keys(db, item)
                     db.execute("UPDATE files SET metadata=? WHERE id=?", (json.dumps(item), identity))
             if item["mimeType"] == "application/vnd.google-apps.shortcut":
                 target = capture_metadata(api, shortcut["targetId"], "shortcut_target_not_accessible",
-                                          resource_key_present=shortcut.get("targetResourceKeyPresent"))
+                                          resource_key_present=known_key(db, shortcut["targetId"]))
                 if SECRET.search(json.dumps(target)): raise Omitted("credential_pattern")
                 if shortcut.get("targetResourceKeyPresent"):
                     target["resourceKeyPresent"] = True
