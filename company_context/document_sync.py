@@ -171,7 +171,7 @@ async def _synchronize(root, settings, slack_batch):
     write_json(root / "document-ingestion.json", status)
     collection = snapshot["collection"]
     collection.update(kind="company_capture", managed_sources=coverage)
-    if not slack_batch or "completed_at" not in collection:
+    if "completed_at" not in collection or (not slack_batch and "slack_capture_started_at" not in collection):
         collection["completed_at"] = datetime.now(timezone.utc).isoformat()
     if snapshot["principal"] == old["principal"] and sorted(snapshot["records"], key=lambda r: r["source_id"]) == sorted(old["records"], key=lambda r: r["source_id"]):
         state.update(document_imports=imports, next_document_provider=next_provider, coverage_snapshot=digest(old), verified_collection=snapshot["collection"], **slack_updates)

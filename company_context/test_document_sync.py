@@ -228,3 +228,30 @@ def test_combined_sync_rejects_negative_document_batch_limit_before_export(tmp_p
     batch = ({"principal": READER, "records": [], "collection": {}}, {})
     with pytest.raises(ValueError, match="document batch count"):
         asyncio.run(document_sync.synchronize(tmp_path, settings, slack_batch=batch))
+
+
+def test_document_fallback_keeps_previous_slack_completion_timestamp(tmp_path, monkeypatch):
+    from company_context.test_context import record
+    settings, _ = setup_publication(tmp_path, monkeypatch)
+    settings["providers"] = {"notion": {}}
+    completed = "2026-11-26T00:00:00+00:00"
+    old = {"principal": READER, "records": [record()],
+           "collection": {"slack_capture_started_at": completed, "completed_at": completed}}
+    release = tmp_path / "release"
+    release.mkdir()
+    sync.write_json(release / "snapshot.json", old)
+    (tmp_path / "current").symlink_to(release)
+    sync.write_json(tmp_path / "sync.json", {"phase": "collecting", "pending_database": "unfinished"})
+    monkeypatch.setattr(document_sync, "export_capture",
+                        lambda *_: {"records": [doc()], "collection": {}})
+    monkeypatch.setattr(document_sync, "require_access", lambda *_: None)
+    observed = []
+
+    async def publish(args, candidate, state, previous, refresh, updates):
+        observed.append((candidate["collection"]["completed_at"], state["pending_database"], updates))
+
+    monkeypatch.setattr(document_sync, "publish_snapshot", publish)
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+    [(timestamp, pending, updates)] = observed
+    assert timestamp == completed
+    assert pending == "unfinished" and "last_database" not in updates
