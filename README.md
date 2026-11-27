@@ -1,6 +1,6 @@
 # Product Advisor
 
-TL;DR: Product Advisor helps teams working toward their first paying customer and a repeatable product business examine customer selection, value, founder sales, buying decisions, packaging, and pricing. A skill combines the user's context with source evidence retrieved from three books through an authenticated MCP server.
+TL;DR: Product Advisor helps teams working toward their first paying customer and a repeatable product business examine customer selection, value, founder sales, buying decisions, packaging, and pricing. A skill combines the user's context with source evidence retrieved from three books through the authenticated `textbooks` MCP server.
 
 ## Private reference library
 
@@ -34,7 +34,7 @@ The Product Advisor skill performs three roles: retrieve textbook evidence, reco
 
 The skill description covers product and customer discussions, including short feedback reports, feature requests, pilot outcomes, stalled purchases, proposals, priorities, and Korean follow-ups without an explicit question. It asks for a brief connection to the current decision rather than a full report on every mention. It instructs the assistant to retrieve MCP evidence before substantive business advice, even when the user does not mention the MCP. Directly relevant evidence can be reused for follow-ups. Pure translation, formatting, implementation of an already decided price, and MCP administration are outside this routing scope.
 
-This is implicit skill invocation, not a hook. The client chooses the skill from its description; `agents/openai.yaml` explicitly permits implicit invocation and declares the existing `product-advisor` MCP dependency. Selection is model-driven, not a guaranteed keyword rule. Use `$product-advisor` in Codex when explicit invocation is needed. Codex detects skill edits automatically; restart Codex if an edit does not appear. Other clients must update their installed plugin. See the [official skill documentation](https://learn.chatgpt.com/docs/build-skills).
+This is implicit skill invocation, not a hook. The client chooses the skill from its description; `agents/openai.yaml` explicitly permits implicit invocation and declares the `textbooks` MCP dependency. Selection is model-driven, not a guaranteed keyword rule. Use `$product-advisor` in Codex when explicit invocation is needed. Codex detects skill edits automatically; restart Codex if an edit does not appear. Other clients must update their installed plugin. See the [official skill documentation](https://learn.chatgpt.com/docs/build-skills).
 
 ## MCP tools
 
@@ -71,7 +71,7 @@ Use an actual `book_id` returned by `list_books()` to constrain retrieval. Follo
    claude plugin install product-advisor@product-advisor
    ```
 
-3. Check that `claude mcp list` shows `plugin:product-advisor:product-advisor` as connected.
+3. Check that `claude mcp list` shows `plugin:product-advisor:textbooks` as connected.
 
 For company context, register the company operator's SSH command separately at user scope:
 
@@ -79,7 +79,7 @@ For company context, register the company operator's SSH command separately at u
 claude mcp add --scope user --transport stdio company-context -- ssh -T -o BatchMode=yes <company-host> 'cd <service-root> && exec .venv/bin/python -m company_context.proxy --token-file <private-token-file>'
 ```
 
-The token stays on the company host. Verify both servers with `claude mcp get company-context` and `claude mcp get plugin:product-advisor:product-advisor`, then start a fresh session with `claude --agent product-advisor:product-manager`. The agent preloads the integrated skill and has read tools for these two MCPs. Test `company_index_status` and `list_books` before relying on either source. The plugin does not automatically register a company endpoint or distribute its credentials. Configure the company service with the [operator guide](company_context/README.md).
+The token stays on the company host. Verify both servers with `claude mcp get company-context` and `claude mcp get plugin:product-advisor:textbooks`, then start a fresh session with `claude --agent product-advisor:product-manager`. The agent preloads the integrated skill and has read tools for these two MCPs. Test `company_index_status` and `list_books` before relying on either source. The plugin does not automatically register a company endpoint or distribute its credentials. Configure the company service with the [operator guide](company_context/README.md).
 
 For local development before installing an updated plugin, copy `agents/product-manager.md` into `~/.claude/agents/product-manager.md` and use `claude --agent product-manager`. Keep the installed `product-advisor:product-advisor` skill current; a local agent copy does not update itself when the repository changes.
 
@@ -95,7 +95,7 @@ claude plugin update product-advisor@product-advisor
 1. Supply the key through your secret manager or a hidden terminal prompt in the shell that launches Codex. For example, in Bash:
 
    ```bash
-   read -r -s -p 'Product Advisor key: ' PRODUCT_ADVISOR_MCP_KEY
+   read -r -s -p 'Textbooks MCP key: ' PRODUCT_ADVISOR_MCP_KEY
    export PRODUCT_ADVISOR_MCP_KEY
    printf '\n'
    ```
@@ -103,7 +103,7 @@ claude plugin update product-advisor@product-advisor
 2. Register the MCP server. Codex reads the key from that variable on each start:
 
    ```sh
-   codex mcp add product-advisor --url https://<host>/mcp --bearer-token-env-var PRODUCT_ADVISOR_MCP_KEY
+   codex mcp add textbooks --url https://<host>/mcp --bearer-token-env-var PRODUCT_ADVISOR_MCP_KEY
    ```
 
 3. Install the skill by linking it from a clone of this repository. Run `git pull` in the clone to update the skill:
@@ -114,7 +114,7 @@ claude plugin update product-advisor@product-advisor
    ln -s ~/product-advisor/skills/product-advisor ~/.codex/skills/product-advisor
    ```
 
-4. Check that `codex mcp list` shows `product-advisor` as enabled.
+4. Check that `codex mcp list` shows `textbooks` as enabled. For an existing registration, rename the `mcp_servers.product-advisor` entry in `~/.codex/config.toml` to `mcp_servers.textbooks`, preserving its URL and authentication settings. Restart the client or open a fresh session to pick up the registration.
 
 Codex must inherit that environment variable when it starts. See the [official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli). Never commit a key or put its value in a command argument. Keep Claude's private settings file outside Git. After either client is connected, verify actual `list_books`, search and source-reading calls; a configured server alone does not prove it is usable.
 

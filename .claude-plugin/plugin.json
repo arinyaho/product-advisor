@@ -1,7 +1,7 @@
 {
   "name": "product-advisor",
   "description": "Proactively joins product and customer decisions with company context and textbook evidence, including Korean updates and follow-ups.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "author": {
     "name": "arinyaho"
