@@ -11,12 +11,13 @@ import sqlite3
 import time
 import subprocess
 import sys
+from urllib.parse import parse_qsl, urlsplit
 
 from company_context.collect_slack import SECRET
 from company_context.context import digest
 
 
-FIELDS = "id,name,mimeType,version,modifiedTime,createdTime,webViewLink,trashed,owners(emailAddress),capabilities(canDownload),shortcutDetails(targetId,targetMimeType),size"
+FIELDS = "id,name,mimeType,version,modifiedTime,createdTime,webViewLink,trashed,owners(emailAddress),capabilities(canDownload),shortcutDetails(targetId,targetMimeType,targetResourceKey),resourceKey,size"
 MAX_BYTES = 50_000_000
 
 
@@ -33,6 +34,13 @@ def text_runs(value):
     return ""
 
 
+def note_resource_keys(item):
+    if item.pop("resourceKey", None):
+        item["resourceKeyPresent"] = True
+    shortcut = item.get("shortcutDetails", {})
+    if shortcut.pop("targetResourceKey", None):
+        shortcut["targetResourceKeyPresent"] = True
+    return item
 
 
 class Drive:
@@ -103,10 +111,13 @@ class Drive:
         params = {"corpora": "user" if scope == "user" else "drive", "q": "trashed = false", "pageSize": 1000, "pageToken": cursor, "includeItemsFromAllDrives": "true", "supportsAllDrives": "true", "fields": "nextPageToken,incompleteSearch,files(" + FIELDS + ")"}
         if scope != "user":
             params["driveId"] = scope
-        return self.json("files", **params)
+        page = self.json("files", **params)
+        for item in page.get("files", []):
+            note_resource_keys(item)
+        return page
 
     def metadata(self, identity):
-        return self.json("files/" + identity, fields=FIELDS, supportsAllDrives="true")
+        return note_resource_keys(self.json("files/" + identity, fields=FIELDS, supportsAllDrives="true"))
 
     def content(self, item):
         identity, mime = item["id"], item["mimeType"]
@@ -169,11 +180,18 @@ def retry_capture_errors(db):
     return len(selected)
 
 
-def capture_metadata(api, identity, omission="file_not_accessible"):
+def has_resource_key(item):
+    # Older captures may have the key only in the provider's link.
+    return item.get("resourceKeyPresent") or any(
+        name.lower() == "resourcekey" for name, _ in parse_qsl(urlsplit(item.get("webViewLink", "")).query)
+    )
+
+
+def capture_metadata(api, identity, omission="file_not_accessible", *, resource_key_present=False):
     try:
         return api.metadata(identity)
     except RuntimeError as error:
-        if str(error) == "drive_http_404":
+        if str(error) == "drive_http_404" and not resource_key_present:
             raise Omitted(omission) from None
         raise
 
@@ -201,14 +219,17 @@ def collect(api, db):
             print(json.dumps(status(db)), flush=True)
             if not following: break
             cursor = following
-    while pending := db.execute("SELECT id FROM files WHERE status='pending' ORDER BY id LIMIT 1").fetchone():
-        identity = pending[0]
+    while pending := db.execute("SELECT id,metadata FROM files WHERE status='pending' ORDER BY id LIMIT 1").fetchone():
+        identity, saved = pending
         try:
-            item = capture_metadata(api, identity)
+            saved_key = has_resource_key(json.loads(saved))
+            item = capture_metadata(api, identity, resource_key_present=saved_key)
             if item.get("trashed"): raise Omitted("trashed")
             if SECRET.search(json.dumps(item)): raise Omitted("credential_pattern")
             if item["mimeType"] == "application/vnd.google-apps.shortcut":
-                target = capture_metadata(api, item["shortcutDetails"]["targetId"], "shortcut_target_not_accessible")
+                shortcut = item["shortcutDetails"]
+                target = capture_metadata(api, shortcut["targetId"], "shortcut_target_not_accessible",
+                                          resource_key_present=shortcut.get("targetResourceKeyPresent"))
                 if SECRET.search(json.dumps(target)): raise Omitted("credential_pattern")
                 with db: db.execute("INSERT OR IGNORE INTO files(id,metadata) VALUES (?,?)", (target["id"], json.dumps(target, ensure_ascii=False)))
                 raise Omitted("shortcut_target_queued")
@@ -219,7 +240,7 @@ def collect(api, db):
             if not text.strip(): raise Omitted("no_text_layer_or_empty")
             if len(text) > 2_000_000: raise Omitted("text_size_limit")
             if SECRET.search(text) or SECRET.search(json.dumps(item)): raise Omitted("credential_pattern")
-            after = capture_metadata(api, identity)
+            after = capture_metadata(api, identity, resource_key_present=saved_key or has_resource_key(item))
             if (item.get("version"), item.get("modifiedTime")) != (after.get("version"), after.get("modifiedTime")) or after.get("trashed"):
                 raise RuntimeError("source_changed_during_capture")
             with db:

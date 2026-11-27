@@ -123,3 +123,48 @@ def test_operator_requeues_only_known_failures_without_rewriting_history(tmp_pat
         ("pdf", "UnicodeEncodeError"), ("missing", "drive_http_404"),
     }
     db.close()
+
+
+def test_404_with_known_resource_key_remains_pending_operator_recovery(tmp_path):
+    class LinkShared(API):
+        def scopes(self): return ["user"]
+        def page(self, scope, cursor):
+            return {"files": [
+                {"id": "known-key", "mimeType": "text/plain", "resourceKeyPresent": True},
+                {"id": "legacy-link", "mimeType": "text/plain",
+                 "webViewLink": "https://drive.google.com/file/d/legacy-link/view?resourcekey=synthetic"},
+                {"id": "shortcut", "mimeType": "application/vnd.google-apps.shortcut"},
+            ]}
+        def metadata(self, identity):
+            if identity == "shortcut":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "target", "targetResourceKeyPresent": True}}
+            raise RuntimeError("drive_http_404")
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    collect(LinkShared(), db)
+    assert set(db.execute("SELECT id,status,reason FROM files")) == {
+        (identity, "failed", "drive_http_404") for identity in ("known-key", "legacy-link", "shortcut")
+    }
+    assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+    db.close()
+
+
+def test_google_metadata_reports_presence_without_retaining_raw_resource_keys(monkeypatch):
+    from company_context.collect_drive import Drive
+
+    def item():
+        return {"id": "link", "resourceKey": "synthetic-file-key",
+                "shortcutDetails": {"targetId": "target", "targetResourceKey": "synthetic-target-key"}}
+
+    def read(path, **params):
+        assert "resourceKey" in params["fields"]
+        assert "targetResourceKey" in params["fields"]
+        return {"files": [item()]} if path == "files" else item()
+
+    api = Drive.__new__(Drive)
+    monkeypatch.setattr(api, "json", read)
+    expected = {"id": "link", "resourceKeyPresent": True,
+                "shortcutDetails": {"targetId": "target", "targetResourceKeyPresent": True}}
+    assert api.page("user", "")["files"] == [expected]
+    assert api.metadata("link") == expected
