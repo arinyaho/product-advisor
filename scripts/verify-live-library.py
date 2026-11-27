@@ -37,7 +37,9 @@ async def verify(release, output, host=None, fixture_path=None):
     async with httpx2.AsyncClient(headers=headers, timeout=120) as http:
         async with streamable_http_client(config["url"], http_client=http) as streams:
             async with ClientSession(*streams) as session:
-                await session.initialize()
+                initialization = await session.initialize()
+                assert initialization.serverInfo.name == "textbooks", "Expected textbooks MCP server"
+                report["server_name"] = initialization.serverInfo.name
                 async def call(name, arguments):
                     result = await session.call_tool(name, arguments, read_timeout_seconds=120)
                     assert not result.is_error, name + " returned a tool error"

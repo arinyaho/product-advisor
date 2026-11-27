@@ -1,6 +1,6 @@
 # Architecture
 
-TL;DR: The current three-book architecture uses isolated LightRAG graph/vector scopes, source-preserving catalogs, bounded evidence responses, and sealed offline releases; see [the library guide](three-book-library.md). The single-PDF data flow and design decisions below are historical context, not the active library's retrieval path.
+TL;DR: The current three-book MCP is named `textbooks`. It uses isolated LightRAG graph/vector scopes, source-preserving catalogs, bounded evidence responses, and sealed offline releases; see [the library guide](three-book-library.md). The single-PDF data flow and design decisions below are historical context, not the active library's retrieval path.
 
 product-advisor helps a product team reason about pricing, willingness to pay (WTP), product-market fit, go-to-market, packaging, and sales by grounding Claude's advice in a reference book served from a PDF. It has two parts: a Claude Code skill that decides when and how to consult the book, and an MCP server that searches and reads the book. The server holds the book and nothing about the team; customer, deal, and hypothesis records stay in the team's own systems.
 
