@@ -24,6 +24,7 @@ import numpy as np
 
 
 ENGINE_VERSION = "1.5.7"
+MODEL_TIMEOUT_SECONDS = 180
 CHUNK_CHARACTERS = 1600
 PRIVATE_NETWORKS = tuple(ipaddress.ip_network(value) for value in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "fc00::/7", "::1/128",
@@ -307,7 +308,7 @@ class Models:
             if not payload["input"] or any(not isinstance(v, str) or len(v.encode()) + 1024 > context for v in payload["input"]):
                 raise ValueError("Embedding input exceeds the configured context bound")
             amount = len(payload["input"]) * context * prices["prompt"] * multiplier / 1_000_000
-        payload["provider"] = {"max_price": prices, "allow_fallbacks": False}
+        payload["provider"] = {"max_price": prices, "allow_fallbacks": kind == "chat"}
         if kind == "chat": payload["provider"]["require_parameters"] = True
         return amount + prices["request"] + .000001
 
@@ -329,9 +330,35 @@ class Models:
         receipt["status"] = "failed_cost_unknown"
         failure = "Configured model request failed; inspect the private receipt"
         try:
-            async with httpx.AsyncClient(timeout=180, follow_redirects=False, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=MODEL_TIMEOUT_SECONDS, follow_redirects=False, trust_env=False) as client:
                 response = await client.post(base + endpoint, json=payload, headers=headers)
                 receipt["http_status"] = response.status_code
+                if response.is_error:
+                    diagnostics = {}
+                    for field in ("retry-after", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"):
+                        value = response.headers.get(field, "")
+                        if re.fullmatch(r"[0-9]{1,16}", value):
+                            diagnostics[field] = int(value)
+                    try:
+                        body = response.json()
+                    except (ValueError, RecursionError):
+                        body = None
+                    error = body.get("error") if isinstance(body, dict) else None
+                    metadata = error.get("metadata") if isinstance(error, dict) else None
+                    if isinstance(metadata, dict):
+                        # Provider messages and arbitrary metadata can echo private source text.
+                        for field, allowed in {
+                            "error_type": {"rate_limit_exceeded", "provider_overloaded", "provider_unavailable", "timeout", "server", "unmapped"},
+                            "limit_source": {"openrouter_credits", "openrouter_key_limit", "openrouter_in_flight_budget", "openrouter_guardrail_budget", "openrouter_workspace_budget"},
+                            "reason": {"in_flight_budget_exhausted", "weight_exceeds_budget"},
+                        }.items():
+                            value = metadata.get(field)
+                            if isinstance(value, str) and value in allowed:
+                                diagnostics[field] = value
+                        if "provider_code" in metadata:
+                            diagnostics["provider_code_present"] = True
+                    if diagnostics:
+                        receipt["failure_metadata"] = diagnostics
                 response.raise_for_status()
                 result = response.json()
                 usage = result.get("usage", {})
@@ -390,6 +417,7 @@ def engine(directory, models, *, building=False, workspace=None):
         embedding_func=EmbeddingFunc(embedding_dim=models.config["dimensions"], max_token_size=8192, model_name=models.config["embedding_model"], func=embed),
         llm_model_func=extract, llm_model_name=models.config["chat_model"],
         llm_model_max_async=1, embedding_func_max_async=1, max_parallel_insert=1,
+        default_embedding_timeout=MODEL_TIMEOUT_SECONDS,
         enable_llm_cache=building, enable_llm_cache_for_entity_extract=building,
     )
 
