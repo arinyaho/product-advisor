@@ -397,7 +397,12 @@ class Models:
 
     async def extract(self, prompt, system_prompt=None, history_messages=None, **kwargs):
         messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + (history_messages or []) + [{"role": "user", "content": prompt}]
-        return await self.request("chat", "/chat/completions", {"model": self.config["chat_model"], "messages": messages, "max_tokens": 8192})
+        model = self.config["chat_model"]
+        payload = {"model": model, "messages": messages, "max_tokens": 8192}
+        if self.config.get("external_provider") == "openrouter" and model == "anthropic/claude-haiku-5.5":
+            # Adaptive thinking can exhaust the completion budget before extraction is complete.
+            payload["reasoning"] = {"enabled": False}
+        return await self.request("chat", "/chat/completions", payload)
 
     async def embed(self, texts):
         return await self.request("embedding", "/embeddings", {"model": self.config["embedding_model"], "input": texts})
