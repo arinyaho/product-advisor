@@ -31,6 +31,14 @@ def snapshots_in_use(root):
     return result
 
 
+def validate_batch_limits(settings):
+    sources = settings.get("batch_sources", 500)
+    characters = settings.get("batch_characters", 2_000_000)
+    if type(sources) is not int or sources < 1 or type(characters) is not int or characters < 2_000_000:
+        raise ValueError("Positive document batch count and capacity for the largest supported source required")
+    return sources, characters
+
+
 async def synchronize(root, settings, *, slack_batch=None):
     try:
         return await _synchronize(root, settings, slack_batch)
@@ -63,8 +71,8 @@ async def _synchronize(root, settings, slack_batch):
     selected_ids = set()
     status = {}
     changed = slack_batch is not None
-    remaining = settings.get("batch_sources", 500)
-    remaining_characters = settings.get("batch_characters", 2_000_000)
+    batch_sources, batch_characters = validate_batch_limits(settings)
+    remaining, remaining_characters = batch_sources, batch_characters
     providers = list(settings["providers"])
     start = providers.index(state["next_document_provider"]) if state.get("next_document_provider") in providers else 0
     providers = providers[start:] + providers[:start]
@@ -72,8 +80,7 @@ async def _synchronize(root, settings, slack_batch):
     for provider in providers:
         if slack_batch:
             # Each provider gets a bounded window in the shared candidate.
-            remaining = settings.get("batch_sources", 500)
-            remaining_characters = settings.get("batch_characters", 2_000_000)
+            remaining, remaining_characters = batch_sources, batch_characters
         config = settings["providers"][provider]
         try:
             incoming = export_capture(provider, config, settings["principal"])
@@ -162,7 +169,10 @@ async def _synchronize(root, settings, slack_batch):
     state["document_access_deferred"] = deferred
     write_json(state_path, state)
     write_json(root / "document-ingestion.json", status)
-    snapshot["collection"].update(kind="company_capture", managed_sources=coverage, completed_at=datetime.now(timezone.utc).isoformat())
+    collection = snapshot["collection"]
+    collection.update(kind="company_capture", managed_sources=coverage)
+    if not slack_batch or "completed_at" not in collection:
+        collection["completed_at"] = datetime.now(timezone.utc).isoformat()
     if snapshot["principal"] == old["principal"] and sorted(snapshot["records"], key=lambda r: r["source_id"]) == sorted(old["records"], key=lambda r: r["source_id"]):
         state.update(document_imports=imports, next_document_provider=next_provider, coverage_snapshot=digest(old), verified_collection=snapshot["collection"], **slack_updates)
         if slack_updates:
@@ -202,7 +212,8 @@ def main():
     args = parser.parse_args()
     root = args.state_dir
     settings = json.loads((root / "document-sources.json").read_text())
-    if settings["budget_usd"] <= 0 or settings.get("batch_sources", 500) < 1 or settings.get("batch_characters", 2_000_000) < 2_000_000: raise ValueError("Positive budget/batch count and capacity for the largest supported source required")
+    if settings["budget_usd"] <= 0: raise ValueError("Positive budget required")
+    validate_batch_limits(settings)
     if args.command == "access":
         refresh_document_access(root, settings, [])
         return

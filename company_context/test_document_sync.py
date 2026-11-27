@@ -206,7 +206,7 @@ def test_combined_noop_completes_pending_slack_collection(tmp_path, monkeypatch)
     from company_context.test_context import record
     settings, _ = setup_publication(tmp_path, monkeypatch)
     settings["providers"] = {}
-    old = {"principal": READER, "records": [record()], "collection": {}}
+    old = {"principal": READER, "records": [record()], "collection": {"completed_at": "2026-11-26T00:00:00+00:00"}}
     release = tmp_path / "release"
     release.mkdir()
     sync.write_json(release / "snapshot.json", old)
@@ -215,6 +215,16 @@ def test_combined_noop_completes_pending_slack_collection(tmp_path, monkeypatch)
     asyncio.run(document_sync.synchronize(tmp_path, settings, slack_batch=(old, {"last_database": "capture"})))
     state = json.loads((tmp_path / "sync.json").read_text())
     assert state["phase"] == "unchanged"
-    assert state["last_collected_at"]
+    assert state["last_collected_at"] == "2026-11-26T00:00:00+00:00"
     assert state["last_database"] == "capture"
     assert "pending_database" not in state and "pending_until" not in state
+
+
+def test_combined_sync_rejects_negative_document_batch_limit_before_export(tmp_path, monkeypatch):
+    settings, _ = setup_publication(tmp_path, monkeypatch)
+    settings["batch_sources"] = -1
+    settings["index_parallelism"] = 4
+    monkeypatch.setattr(document_sync, "export_capture", lambda *_: pytest.fail("Invalid batch attempted an export"))
+    batch = ({"principal": READER, "records": [], "collection": {}}, {})
+    with pytest.raises(ValueError, match="document batch count"):
+        asyncio.run(document_sync.synchronize(tmp_path, settings, slack_batch=batch))
