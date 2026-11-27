@@ -202,7 +202,11 @@ async def publish_snapshot(args, snapshot, state, previous, refresh, updates):
         base = previous if previous_snapshot and previous_snapshot.get("collection", {}).get("kind") in ("slack_channel_capture", "company_capture") else None
         if base and json.loads((base / "ready.json").read_text())["config"] != index_config(models, corpus):
             base = None
-        await build(snapshot, candidate, models, base)
+        parallelism = getattr(args, "index_parallelism", 1)
+        if parallelism > 1:
+            await build(snapshot, candidate, models, base, parallelism=parallelism)
+        else:
+            await build(snapshot, candidate, models, base)
         verified, rag = await open_index(candidate, models)
         from company_context.server import create_app, token_from_file
         from starlette.testclient import TestClient
@@ -253,6 +257,9 @@ async def synchronize(args):
     policy = {}
     if args.command == "sync" and policy_path.exists():
         policy = json.loads(policy_path.read_text())
+        parallelism = policy.get("index_parallelism", 1)
+        if type(parallelism) is not int or not 1 <= parallelism <= 4:
+            raise ValueError("Index parallelism must be an integer from one to four")
         args.budget_usd = policy["budget_usd"]
         args.max_model_calls = policy.get("max_model_calls", args.max_model_calls)
     api = Slack(args.token_file)
@@ -387,6 +394,10 @@ async def synchronize(args):
         complete = len(retained) + len(selected) == len(slack_rows)
         snapshot["collection"]["slack_indexing"] = {"available_sources": len(slack_rows), "indexed_sources": len(retained) + len(selected), "complete": complete}
         updates = {"last_database": str(database), "slack_batch_database": None if complete else str(database), "slack_batch_excluded_channels": [] if complete else state.get("slack_batch_excluded_channels", [])}
+        if policy.get("index_parallelism", 1) > 1:
+            from company_context.document_sync import synchronize as publish_combined
+            await publish_combined(root, policy, slack_batch=(snapshot, updates))
+            return
         corpus = Corpus(snapshot)
         require_access(corpus, root / "access.json")
         if previous_snapshot and sorted(previous_snapshot["records"], key=lambda r: r["source_id"]) == sorted(snapshot["records"], key=lambda r: r["source_id"]):

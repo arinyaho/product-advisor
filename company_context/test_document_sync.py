@@ -166,3 +166,55 @@ def test_slack_refresh_preserves_published_document_records(tmp_path, monkeypatc
     asyncio.run(sync.synchronize(args))
     assert {r["source_id"] for r in observed} == {"p1", "slack:T1:C001:timeline:12"}
     assert next(r for r in observed if r["source_id"] == "p1") == doc()
+
+
+def test_combined_cycle_publishes_slack_and_each_document_provider(tmp_path, monkeypatch):
+    from company_context.test_context import record
+    settings, _ = setup_publication(tmp_path, monkeypatch)
+    settings["providers"]["jira"] = {}
+    sample = doc("notion", "p1")
+    jira = {**sample, "source_id": "jira:example.atlassian.net:101", "source_type": "jira",
+            "url": "https://example.atlassian.net/browse/PROJ-1",
+            "provider_scope": {"provider": "jira", "connection": "c" * 64, "resource_id": "101"}}
+    records = {"notion": sample, "drive": doc("drive", "f1"), "jira": jira}
+    monkeypatch.setattr(document_sync, "export_capture", lambda provider, *_: {
+        "records": [records[provider]], "collection": {"capture_id": "pilot"}})
+    access = {"principal": READER, "providers": {
+        provider: {"connection": row["provider_scope"]["connection"],
+                   "resource_ids": [row["provider_scope"]["resource_id"]]}
+        for provider, row in records.items()}}
+    monkeypatch.setattr(document_sync, "refresh_document_access",
+                        lambda *_: sync.write_json(tmp_path / "document-access.json", access))
+    monkeypatch.setattr(document_sync, "require_access", lambda *_: None)
+    observed = []
+
+    async def publish(args, candidate, state, previous, refresh, updates):
+        observed.append((args.index_parallelism, candidate, updates))
+
+    monkeypatch.setattr(document_sync, "publish_snapshot", publish)
+    settings["index_parallelism"] = 4
+    slack = record("slack")
+    slack_batch = ({"principal": READER, "records": [slack], "collection": {}}, {"last_database": "capture"})
+    asyncio.run(document_sync.synchronize(tmp_path, settings, slack_batch=slack_batch))
+    [(parallelism, candidate, updates)] = observed
+    assert parallelism == 4
+    assert {r["source_type"] for r in candidate["records"]} == {"slack", "notion", "docs", "jira"}
+    assert updates["last_database"] == "capture"
+
+
+def test_combined_noop_completes_pending_slack_collection(tmp_path, monkeypatch):
+    from company_context.test_context import record
+    settings, _ = setup_publication(tmp_path, monkeypatch)
+    settings["providers"] = {}
+    old = {"principal": READER, "records": [record()], "collection": {}}
+    release = tmp_path / "release"
+    release.mkdir()
+    sync.write_json(release / "snapshot.json", old)
+    (tmp_path / "current").symlink_to(release)
+    sync.write_json(tmp_path / "sync.json", {"phase": "collecting", "pending_database": "capture", "pending_until": 12})
+    asyncio.run(document_sync.synchronize(tmp_path, settings, slack_batch=(old, {"last_database": "capture"})))
+    state = json.loads((tmp_path / "sync.json").read_text())
+    assert state["phase"] == "unchanged"
+    assert state["last_collected_at"]
+    assert state["last_database"] == "capture"
+    assert "pending_database" not in state and "pending_until" not in state

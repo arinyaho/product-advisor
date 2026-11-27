@@ -91,7 +91,7 @@ def validate_slack_source(source):
 
 
 class Corpus:
-    def __init__(self, snapshot):
+    def __init__(self, snapshot, pipeline_documents=()):
         if not isinstance(snapshot.get("principal"), str) or not snapshot["principal"].strip():
             raise ValueError("A snapshot must name its single authorized reader")
         rows = snapshot.get("records")
@@ -177,7 +177,10 @@ class Corpus:
                 self.source_chunks[identity].append(chunk["chunk_id"])
                 rendered = sanitize_text_for_encoding(self.render(chunk))
                 self.by_content[rendered] = chunk
-                native_id = make_custom_chunk_id(self.document_ids[identity], rendered)
+                doc_id = self.document_ids[identity]
+                native_id = make_custom_chunk_id(doc_id, rendered)
+                if doc_id in pipeline_documents:
+                    native_id = f"{doc_id}-{native_id}"
                 self.native_chunks[native_id] = chunk
                 self.native_document_chunks[self.document_ids[identity]].append(native_id)
         self.version = digest(snapshot)
@@ -230,6 +233,7 @@ class Models:
         self.calls, self.max_calls, self.failed = 0, max_calls, False
         self.authorize = authorize
         self.access_denied = False
+        self.saw_access_denial = False
         self.cost, self.budget = 0.0, budget
         self.active_calls = set()
         self.receipts = Path(receipts) if receipts else None
@@ -340,6 +344,7 @@ class Models:
                 self.access_denied = False
             except Exception:
                 self.access_denied = True
+                self.saw_access_denial = True
                 raise RuntimeError("Source access changed; model dispatch stopped") from None
         reserve = self.price_reservation(kind, payload)
         base = validate_model_url(self.config[kind + "_url"], self.config.get("external_provider"))
@@ -429,7 +434,7 @@ class Models:
         return await self.request("embedding", "/embeddings", {"model": self.config["embedding_model"], "input": texts})
 
 
-def engine(directory, models, *, building=False, workspace=None):
+def engine(directory, models, *, building=False, workspace=None, parallelism=1, **options):
     async def embed(texts):
         return await models.embed(texts)
 
@@ -442,7 +447,8 @@ def engine(directory, models, *, building=False, workspace=None):
         working_dir=str(directory), workspace=workspace or "company-" + digest(str(Path(directory).resolve()))[:20],
         embedding_func=EmbeddingFunc(embedding_dim=models.config["dimensions"], max_token_size=8192, model_name=models.config["embedding_model"], func=embed),
         llm_model_func=extract, llm_model_name=models.config["chat_model"],
-        llm_model_max_async=1, embedding_func_max_async=1, max_parallel_insert=1,
+        llm_model_max_async=parallelism, embedding_func_max_async=parallelism, max_parallel_insert=parallelism,
+        **options,
         default_embedding_timeout=MODEL_TIMEOUT_SECONDS,
         enable_llm_cache=building, enable_llm_cache_for_entity_extract=building,
     )
@@ -463,13 +469,14 @@ def index_config(models, corpus=None):
     return config
 
 
-async def build(snapshot, directory, models, previous=None):
+async def build(snapshot, directory, models, previous=None, *, parallelism=1):
     corpus = Corpus(snapshot)
     directory = Path(directory)
     directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     (directory / "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False))
     workspace = "company-" + digest(str((directory / "index").resolve()))[:20]
     old = None
+    pipeline_documents = set()
     if previous:
         previous = Path(previous)
         prior = json.loads((previous / "snapshot.json").read_text())
@@ -478,27 +485,80 @@ async def build(snapshot, directory, models, previous=None):
             raise ValueError("Incremental builds require the same reader and a matching snapshot")
         # Native deletion can re-summarize another withdrawn document before its deletion.
         if ready["config"] == index_config(models, corpus) and all(corpus.document_ids.get(row["source_id"]) == "doc-" + digest(row) for row in prior["records"]):
-            old = Corpus(prior)
+            pipeline_documents.update(ready.get("pipeline_documents", []))
+            old = Corpus(prior, pipeline_documents)
             shutil.copytree(previous / "index", directory / "index")
             (directory / "index" / ready.get("workspace", "company-context")).rename(directory / "index" / workspace)
-    rag = engine(directory / "index", models, building=True, workspace=workspace)
+    pending = [source_id for source_id in corpus.records
+               if not old or old.document_ids.get(source_id) != corpus.document_ids[source_id]]
+    options = {}
+    if parallelism > 1 and pending:
+        by_provider = {}
+        for source_id in pending:
+            row = corpus.records[source_id]
+            provider = row.get("provider_scope", {}).get("provider", row["source_type"])
+            by_provider.setdefault(provider, []).append(source_id)
+        sources = {
+            corpus.document_ids[source_id]: source_id
+            for group in itertools.zip_longest(*by_provider.values())
+            for source_id in group if source_id is not None
+        }
+        pipeline_documents.update(sources)
+
+        def chunking(tokenizer, document_id, *_):
+            source_id = sources[document_id]
+            result = []
+            for position, key in enumerate(corpus.source_chunks[source_id]):
+                text = sanitize_text_for_encoding(corpus.render(corpus.chunks[key]))
+                result.append({"content": text, "tokens": len(tokenizer.encode(text)),
+                               "chunk_order_index": position, "chunk_id": make_custom_chunk_id(document_id, text)})
+            return result
+
+        options["chunking_func"] = chunking
+    if pipeline_documents:
+        corpus = Corpus(snapshot, pipeline_documents)
+    rag = engine(directory / "index", models, building=True, workspace=workspace, parallelism=parallelism, **options)
     await rag.initialize_storages()
     try:
         if old:
             await verify_chunks(old, rag)
-        for position, (source_id, source) in enumerate(corpus.records.items(), 1):
-            if old and old.document_ids.get(source_id) == corpus.document_ids[source_id]:
-                continue
-            chunks = [corpus.render(corpus.chunks[key]) for key in corpus.source_chunks[source_id]]
-            await rag.ainsert_custom_chunks(source["text"], chunks, doc_id=corpus.document_ids[source_id])
-            if getattr(models, "failed", False) or getattr(models, "access_denied", False):
+        if options:
+            # The pipeline deduplicates inputs by text. Use unique IDs as dispatch
+            # keys so identical source bodies keep separate provenance.
+            identities = list(sources)
+            await rag.apipeline_enqueue_documents(identities, ids=identities, process_options="C")
+            processing = asyncio.create_task(rag.apipeline_process_enqueue_documents())
+            try:
+                while True:
+                    finished, _ = await asyncio.wait({processing}, timeout=3)
+                    statuses = await rag.doc_status.get_by_ids(identities)
+                    completed = sum(row is not None and row.get("status") == "processed" for row in statuses)
+                    progress = {"completed_sources": len(corpus.records) - len(identities) + completed,
+                                "total_sources": len(corpus.records), "model_calls": models.calls}
+                    (directory / "progress.json").write_text(json.dumps(progress))
+                    if finished:
+                        await processing
+                        break
+            finally:
+                if not processing.done():
+                    processing.cancel()
+                    await asyncio.gather(processing, return_exceptions=True)
+            if getattr(models, "failed", False) or getattr(models, "saw_access_denial", False):
                 raise ValueError("Model processing failed; this candidate cannot be published")
-            progress = {"source_id_hash": digest(source_id), "completed_sources": position, "total_sources": len(corpus.records), "model_calls": models.calls}
-            (directory / "progress.json").write_text(json.dumps(progress))
+        else:
+            for position, source_id in enumerate(pending, len(corpus.records) - len(pending) + 1):
+                chunks = [corpus.render(corpus.chunks[key]) for key in corpus.source_chunks[source_id]]
+                await rag.ainsert_custom_chunks(corpus.records[source_id]["text"], chunks, doc_id=corpus.document_ids[source_id])
+                if getattr(models, "failed", False) or getattr(models, "access_denied", False):
+                    raise ValueError("Model processing failed; this candidate cannot be published")
+                progress = {"source_id_hash": digest(source_id), "completed_sources": position, "total_sources": len(corpus.records), "model_calls": models.calls}
+                (directory / "progress.json").write_text(json.dumps(progress))
         await verify_chunks(corpus, rag)
     finally:
         await close_engine(rag)
     ready = {"snapshot": corpus.version, "principal": corpus.principal, "source_count": len(corpus.records), "chunk_count": len(corpus.chunks), "config": index_config(models, corpus), "model_calls": models.calls, "workspace": workspace}
+    if pipeline_documents:
+        ready["pipeline_documents"] = sorted(pipeline_documents)
     (directory / "ready.json").write_text(json.dumps(ready, ensure_ascii=False))
     return ready
 
@@ -506,7 +566,7 @@ async def build(snapshot, directory, models, previous=None):
 async def open_index(directory, models):
     directory = Path(directory)
     ready = json.loads((directory / "ready.json").read_text())
-    corpus = Corpus(json.loads((directory / "snapshot.json").read_text()))
+    corpus = Corpus(json.loads((directory / "snapshot.json").read_text()), set(ready.get("pipeline_documents", [])))
     if ready["snapshot"] != corpus.version or ready["config"] != index_config(models, corpus):
         raise ValueError("Snapshot or model configuration differs from the completed build")
     rag = engine(directory / "index", models, workspace=ready.get("workspace", "company-context"))

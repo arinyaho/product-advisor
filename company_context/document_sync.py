@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import fcntl
 import json
 import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,16 +31,16 @@ def snapshots_in_use(root):
     return result
 
 
-async def synchronize(root, settings):
+async def synchronize(root, settings, *, slack_batch=None):
     try:
-        return await _synchronize(root, settings)
+        return await _synchronize(root, settings, slack_batch)
     finally:
         with (root / "document-access.lock").open("a") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             (root / "document-preflight.json").unlink(missing_ok=True)
 
 
-async def _synchronize(root, settings):
+async def _synchronize(root, settings, slack_batch):
     current = root / "current"
     previous = current.resolve() if current.is_symlink() else None
     old = json.loads((previous / "snapshot.json").read_text()) if previous else {"principal": settings["principal"], "records": []}
@@ -51,12 +52,17 @@ async def _synchronize(root, settings):
         raise ValueError("An unfinished paid build requires operator review; no automatic replay")
     verified_collection = reported_coverage(old, digest(old), state_path)
     snapshot = {"principal": settings["principal"], "records": list(old["records"]), "collection": dict(verified_collection) if isinstance(verified_collection, dict) else {}}
+    slack_updates = {}
+    if slack_batch:
+        snapshot, slack_updates = slack_batch
+        if snapshot["principal"] != settings["principal"]:
+            raise ValueError("Slack reader differs from document authorization")
     coverage = dict(snapshot["collection"].get("managed_sources", {}))
     imports = dict(state.get("document_imports", {}))
     deferred = dict(state.get("document_access_deferred", {}))
     selected_ids = set()
     status = {}
-    changed = False
+    changed = slack_batch is not None
     remaining = settings.get("batch_sources", 500)
     remaining_characters = settings.get("batch_characters", 2_000_000)
     providers = list(settings["providers"])
@@ -64,6 +70,10 @@ async def _synchronize(root, settings):
     providers = providers[start:] + providers[:start]
     next_provider = providers[0] if providers else None
     for provider in providers:
+        if slack_batch:
+            # Each provider gets a bounded window in the shared candidate.
+            remaining = settings.get("batch_sources", 500)
+            remaining_characters = settings.get("batch_characters", 2_000_000)
         config = settings["providers"][provider]
         try:
             incoming = export_capture(provider, config, settings["principal"])
@@ -154,7 +164,11 @@ async def _synchronize(root, settings):
     write_json(root / "document-ingestion.json", status)
     snapshot["collection"].update(kind="company_capture", managed_sources=coverage, completed_at=datetime.now(timezone.utc).isoformat())
     if snapshot["principal"] == old["principal"] and sorted(snapshot["records"], key=lambda r: r["source_id"]) == sorted(old["records"], key=lambda r: r["source_id"]):
-        state.update(document_imports=imports, next_document_provider=next_provider, coverage_snapshot=digest(old), verified_collection=snapshot["collection"])
+        state.update(document_imports=imports, next_document_provider=next_provider, coverage_snapshot=digest(old), verified_collection=snapshot["collection"], **slack_updates)
+        if slack_updates:
+            state.update(phase="unchanged", last_collected_at=snapshot["collection"]["completed_at"])
+            state.pop("pending_database", None)
+            state.pop("pending_until", None)
         write_json(state_path, state)
         for entry in status.values():
             if entry["phase"] == "ready_to_index": entry["phase"] = "indexing" if entry.get("remaining_sources") else "indexed" if entry["coverage"].get("capture_complete", True) else "waiting_for_more_pages"
@@ -168,8 +182,8 @@ async def _synchronize(root, settings):
         access = refresh_access(api, root / "access.json")
         if access["principal"] != settings["principal"]: raise ValueError("Slack reader differs from document authorization")
         require_access(corpus, root / "access.json")
-        args = SimpleNamespace(state_dir=root, config=Path(settings["model_config"]), budget_usd=settings["budget_usd"], max_model_calls=settings.get("max_model_calls", 50000), mcp_token_file=Path(settings["mcp_token_file"]), service=settings.get("service", "company-context.service"), port=settings.get("port", 8766))
-        await publish_snapshot(args, snapshot, state, previous, lambda: refresh_access(api, root / "access.json"), {"document_imports": imports, "next_document_provider": next_provider})
+        args = SimpleNamespace(state_dir=root, config=Path(settings["model_config"]), budget_usd=settings["budget_usd"], max_model_calls=settings.get("max_model_calls", 50000), mcp_token_file=Path(settings["mcp_token_file"]), service=settings.get("service", "company-context.service"), port=settings.get("port", 8766), index_parallelism=settings.get("index_parallelism", 1) if slack_batch else 1)
+        await publish_snapshot(args, snapshot, state, previous, lambda: refresh_access(api, root / "access.json"), {"document_imports": imports, "next_document_provider": next_provider, **slack_updates})
         for provider in status:
             if status[provider]["phase"] == "ready_to_index":
                 status[provider]["indexed_sources"] += status[provider].get("batch_sources", 0)
@@ -191,6 +205,9 @@ def main():
     if settings["budget_usd"] <= 0 or settings.get("batch_sources", 500) < 1 or settings.get("batch_characters", 2_000_000) < 2_000_000: raise ValueError("Positive budget/batch count and capacity for the largest supported source required")
     if args.command == "access":
         refresh_document_access(root, settings, [])
+        return
+    if settings.get("index_parallelism", 1) > 1:
+        subprocess.run(["systemctl", "--user", "start", "--no-block", "company-context-sync.service"], check=True)
         return
     with (root / "sync.lock").open("a") as lock:
         try:
