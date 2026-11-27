@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "product-advisor": {
+    "textbooks": {
       "type": "http",
       "url": "${PRODUCT_ADVISOR_MCP_URL}",
       "headers": { "Authorization": "Bearer ${PRODUCT_ADVISOR_MCP_KEY}" }

@@ -26,7 +26,8 @@ async def verify(release, output, host=None, fixture_path=None):
     catalog = Catalog.load(release)
     version = json.loads((release / "manifest.json").read_text())["version"]
     retrieval_version = json.loads((release / "ready.json").read_text())["retrieval_version"]
-    config = tomllib.loads((Path.home() / ".codex/config.toml").read_text())["mcp_servers"]["product-advisor"]
+    servers = tomllib.loads((Path.home() / ".codex/config.toml").read_text())["mcp_servers"]
+    config = servers["textbooks"] if "textbooks" in servers else servers["product-advisor"]
     headers = dict(config.get("http_headers", {}))
     headers.update({name: os.environ[variable] for name, variable in config.get("env_http_headers", {}).items()})
     if config.get("bearer_token_env_var"):

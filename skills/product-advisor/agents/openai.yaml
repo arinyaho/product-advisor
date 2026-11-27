@@ -5,7 +5,7 @@ interface:
 dependencies:
   tools:
     - type: "mcp"
-      value: "product-advisor"
+      value: "textbooks"
       description: "Authenticated reference search and source reading"
 policy:
   allow_implicit_invocation: true

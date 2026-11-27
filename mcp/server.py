@@ -548,7 +548,7 @@ def _bearer(headers):
 
 # --- MCP ---------------------------------------------------------------------------------------
 
-mcp = MCPServer("product-advisor")
+mcp = MCPServer("textbooks")
 
 
 @mcp.tool()
