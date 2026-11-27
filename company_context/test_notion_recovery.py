@@ -184,12 +184,15 @@ def test_operator_validation_retry_retains_positions_and_unknown_failures(tmp_pa
     db.close()
 
 
-def test_slack_publication_preserves_verified_notion_completion(tmp_path, monkeypatch):
+@pytest.mark.parametrize("managed_records", [[doc()], [], None])
+def test_slack_publication_preserves_verified_notion_completion(tmp_path, monkeypatch, managed_records):
     from company_context import sync
     from company_context.test_ingestion_review import setup_sync
     from company_context.test_document_sync import cache
-    old = {'principal':READER, 'records':[doc()], 'collection':{'managed_sources':{'notion':{'capture_id':'capture','index_complete':False}}}}
-    args = setup_sync(tmp_path, monkeypatch, old=old, messages=[{'ts':'12','text':'New evidence'}])
+    old = {'principal':READER, 'records':managed_records, 'collection':{'managed_sources':{'notion':{'capture_id':'capture','index_complete':False}}}}
+    if managed_records is None:
+        old = {'principal': READER, 'records': []}
+    args = setup_sync(tmp_path, monkeypatch, old=old if managed_records is not None else None, messages=[{'ts':'12','text':'New evidence'}])
     cache(tmp_path)
     verified = {'managed_sources':{'notion':{'capture_id':'capture','index_complete':True}}}
     sync.write_json(tmp_path/'sync.json', {'phase':'unchanged','coverage_snapshot':sync.digest(old),'verified_collection':verified})
@@ -204,15 +207,18 @@ def test_withheld_page_metadata_needs_retained_body_not_a_generated_title(tmp_pa
     path = tmp_path/'capture.sqlite'
     db = open_store(path, {'workspace_id':'W','connection_id':'bot1'})
     with db:
-        for identity in ('empty','safe'):
+        for identity in ('empty','blank-row','unsupported','cyclic','safe'):
             retain(db, {'object':'page','id':identity,'properties':{},'text':'sk-'+'s'*24}, ('search','all'), 0)
             retain(db, {'object':'response_metadata','id':'children:'+identity+':','response':{'object':'list'}}, ('children',identity), -1)
+        retain(db, {'object':'block','id':'blank','type':'table_row','table_row':{'cells':[[], []]}}, ('children','blank-row'), 0)
+        db.execute("INSERT INTO omissions VALUES ('children','unsupported','api_unsupported_block')")
+        retain(db, {'object':'block','id':'loop','type':'synced_block','synced_block':{'synced_from':{'block_id':'cyclic'}}}, ('children','cyclic'), 0)
         retain(db, {'object':'block','id':'body','type':'paragraph','paragraph':{'rich_text':[{'plain_text':'Safe retained decision'}]}}, ('children','safe'), 0)
         db.execute('UPDATE tasks SET done=1')
     result = export_capture('notion', {'database':str(path),'workspace_id':'W','connection_id':'bot1','allow_partial':True}, READER)
     assert {r['source_id'] for r in result['records']} == {'notion:W:safe'}
     assert 'Safe retained decision' in result['records'][0]['text']
-    assert result['collection']['empty_withheld_pages'] == 1
+    assert result['collection']['empty_withheld_pages'] == 4
     assert 'no_retained_content' not in result['collection']['export_omissions']
     db.close()
 
@@ -339,3 +345,16 @@ def test_preflight_cleanup_waits_for_inventory_scan_lock(tmp_path, monkeypatch):
     asyncio.run(document_sync.synchronize(tmp_path, {}))
     assert locked == [fcntl.LOCK_EX]
     assert not preflight.exists()
+
+
+def test_fresh_publisher_waits_for_first_document_without_an_inventory(tmp_path):
+    path = tmp_path / 'notion.sqlite'
+    identity = {'workspace_id': 'W', 'connection_id': 'bot1'}
+    open_store(path, identity).close()
+    settings = {'principal': READER, 'providers': {'notion': {**identity, 'database': str(path)}}}
+
+    asyncio.run(document_sync.synchronize(tmp_path, settings))
+
+    status = json.loads((tmp_path / 'document-ingestion.json').read_text())
+    assert status == {'notion': {'phase': 'capture_in_progress'}}
+    assert not (tmp_path / 'current').exists()

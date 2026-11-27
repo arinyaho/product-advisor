@@ -360,11 +360,12 @@ async def synchronize(args):
             retired_aliases = set(identities)
             snapshot["records"] = [r for r in snapshot["records"] if resource_identity(r, provider) not in retired_aliases]
         managed = [r for r in (previous_snapshot or {}).get("records", []) if "provider_scope" in r]
-        if managed:
-            for provider in sorted({r["provider_scope"]["provider"] for r in managed}):
-                snapshot["records"] = merge_records(snapshot["records"], [r for r in managed if r["provider_scope"]["provider"] == provider], provider)
-            previous_coverage = reported_coverage(previous_snapshot, digest(previous_snapshot), state_path)
-            snapshot["collection"]["managed_sources"] = previous_coverage.get("managed_sources", {}) if isinstance(previous_coverage, dict) else {}
+        for provider in sorted({r["provider_scope"]["provider"] for r in managed}):
+            snapshot["records"] = merge_records(snapshot["records"], [r for r in managed if r["provider_scope"]["provider"] == provider], provider)
+        coverage_base = previous_snapshot or {"principal": snapshot["principal"], "records": []}
+        previous_coverage = reported_coverage(coverage_base, digest(coverage_base), state_path)
+        if isinstance(previous_coverage, dict) and "managed_sources" in previous_coverage:
+            snapshot["collection"]["managed_sources"] = previous_coverage["managed_sources"]
         withdraw_changed(previous_snapshot, snapshot, state, state_path)
         limit = policy.get("slack_batch_sources", 100)
         capacity = policy.get("slack_batch_characters", 500_000)

@@ -46,6 +46,7 @@ def notion_records(db, settings, finished):
     def require_task(kind, identity):
         if not tasks.get((kind, identity), False): raise IncompleteCapture("page_dependencies_incomplete")
     def children(identity, visiting, dependencies, captured):
+        nonlocal has_body_text
         if identity in visiting:
             return ["[Cyclic synced-block reference omitted]"]
         require_task("children", identity)
@@ -55,11 +56,14 @@ def notion_records(db, settings, finished):
         for block in members(db, "children", identity, captured):
             if block.get("object") != "block" or block.get("archived") or block.get("in_trash"): continue
             kind = block.get("type"); value = block.get(kind, {})
+            start = len(result)
             if value.get("rich_text"): result.append(plain(value["rich_text"]))
             if value.get("cells"): result.append("\t".join(plain(cell) for cell in value["cells"]))
             for key in ("title", "expression", "url"):
                 if isinstance(value.get(key), str): result.append(value[key])
             if value.get("caption"): result.append(plain(value["caption"]))
+            if any(part.strip() for part in result[start:]):
+                has_body_text = True
             if kind == "synced_block" and value.get("synced_from"):
                 original = value["synced_from"]["block_id"]
                 dependencies.add("block:" + original)
@@ -74,6 +78,7 @@ def notion_records(db, settings, finished):
         if page.get("archived") or page.get("in_trash"): continue
         captured = [row[0] for row in db.execute("SELECT captured_at FROM objects WHERE kind='page' AND id=?", (identity,))]
         dependencies = set()
+        has_body_text = False
         try:
             require_task("page", identity)
             for key in properties_by_page.get(identity, []): require_task("property", key)
@@ -103,7 +108,7 @@ def notion_records(db, settings, finished):
                 value = prop
             parts.append(name + ": " + json.dumps(value, ensure_ascii=False, sort_keys=True))
         parts.extend(body)
-        if not captured or (not page and not body):
+        if not captured or (not page and not has_body_text):
             omissions.setdefault("no_retained_content", []).append(identity)
             continue
         text = "\n\n".join(part for part in parts if part)
@@ -243,6 +248,8 @@ def refresh_document_access(root, settings, snapshots):
                 finally: api.client.close()
             else: raise ValueError("Unknown document provider")
             result["providers"][provider] = {"connection": connection, "checked_at": checked, "resource_ids": sorted(visible)}
+            write_json(path, result)
+        if not path.exists():
             write_json(path, result)
         return result
 
