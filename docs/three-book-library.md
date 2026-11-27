@@ -78,16 +78,17 @@ python eval/three_books.py data/libraries/<version> --cases eval/three_book_evid
 
 ```sh
 python scripts/deploy-library.py damcocu data/libraries/<version> --cases eval/three_book_cases_v2.json --evaluation data/three-book-evaluation-v2.json
-ssh -t damcocu 'cd /volume1/docker/product-advisor && bash staging/<version>/library-host.sh activate <version>'
+ssh -t damcocu 'cd /volume1/docker/product-advisor && bash staging/<deployment>/library-host.sh activate <deployment>'
 ```
 
+- A deployment is `<version>-<runtime>`: the release version plus the first 12 hex digits of a SHA-256 over the staged runtime files (`code/` and `library-host.sh`). The release version covers only sources, index and retrieval settings, so a runtime-only change to an accepted release stages, activates and is accepted as a new deployment with its own backup and rollback. Staging prints the exact activation and acceptance commands.
 - Stage transfers an explicit runtime whitelist, source catalog, source files, sealed indices, a fixture-bound passing evaluation, the exact fixture, and an integrity inventory. It excludes all keys, environment files, extraction/LLM caches, test data and the local active pointer. The NAS verifies every staged file before activation. The running service is unchanged during staging.
 - Activation needs the NAS sudo credential in its terminal and a matching 15/15 result for both modes. It preserves the previous container image, runtime files and library pointer under `backups/`, builds the new image, writes the new pointer atomically, and starts the existing compose service. Key files, `.env`, existing book data and old indices remain in place. The transaction writes `staging/<version>/activation.log` for monitoring.
-- After startup it waits 300 seconds for `staging/<version>/accepted.json`. The operator must run real authenticated MCP calls through the configured public endpoint, checking book list, each book, all-book retrieval, modes, TOC, source reading and continuation. Run `scripts/verify-live-library.py <release> --cases eval/three_book_cases_v2.json --output data/live-library-acceptance-v2.json --accept-host damcocu` to write the acceptance file only after these checks pass. The host checks the version and fixture hash before acceptance. `rejected.json`, startup failure, build failure, or acceptance timeout restores the previous runtime/image/pointer.
-- Roll back an accepted version using the same terminal authentication:
+- After startup it waits 300 seconds for `staging/<deployment>/accepted.json`. The operator must run real authenticated MCP calls through the configured public endpoint, checking book list, each book, all-book retrieval, modes, TOC, source reading and continuation. Run `scripts/verify-live-library.py <release> --cases eval/three_book_cases_v2.json --output data/live-library-acceptance-v2.json --accept-host damcocu --deployment <deployment>` to write the acceptance file only after these checks pass. The host checks the version, deployment and fixture hash before acceptance and refuses to activate a deployment that was already accepted. `rejected.json`, startup failure, build failure, or acceptance timeout restores the previous runtime/image/pointer.
+- Roll back an accepted deployment using the same terminal authentication:
 
 ```sh
-ssh -t damcocu 'cd /volume1/docker/product-advisor && bash staging/<version>/library-host.sh rollback <version>'
+ssh -t damcocu 'cd /volume1/docker/product-advisor && bash staging/<deployment>/library-host.sh rollback <deployment>'
 ```
 
 - The restore path uses the captured exact image ID; it does not rebuild the previous application or overwrite the key store. Runtime acceptance and rollback results must be reported separately from local checks.

@@ -5,11 +5,16 @@ import json
 from pathlib import Path
 import subprocess
 import hashlib
+import importlib.util
 
 
-def test_failed_build_restores_runtime_and_preserves_keys(tmp_path, bad_fixture=False):
+def test_failed_build_restores_runtime_and_preserves_keys(tmp_path, bad_fixture=False, already_accepted=False):
     version = "three-books-0123456789abcdef"
-    stage = tmp_path / "staging" / version
+    deployment = version + "-00000000000b"
+    # An earlier deployment of the same release with other runtime code does not block this one.
+    (tmp_path / "staging" / (version + "-00000000000a")).mkdir(parents=True)
+    (tmp_path / "staging" / (version + "-00000000000a") / "accepted.json").write_text("{}")
+    stage = tmp_path / "staging" / deployment
     (stage / "code/mcp").mkdir(parents=True)
     (stage / "release").mkdir()
     (stage / "verified.json").write_text("{}")
@@ -19,6 +24,8 @@ def test_failed_build_restores_runtime_and_preserves_keys(tmp_path, bad_fixture=
     (stage / "release/ready.json").write_text(json.dumps({"retrieval_version": "test"}))
     (stage / "code/mcp/server.py").write_text("new runtime")
     (stage / "code/docker-compose.yml").write_text("new compose")
+    if already_accepted:
+        (stage / "accepted.json").write_text("{}")
     (tmp_path / "mcp").mkdir()
     (tmp_path / "mcp/server.py").write_text("old runtime")
     (tmp_path / "docker-compose.yml").write_text("old compose")
@@ -38,9 +45,9 @@ exit 0
 ''')
     docker.chmod(0o700)
     script = Path(__file__).with_name("library-host.sh")
-    result = subprocess.run(["bash", str(script), "activate", version], cwd=tmp_path, env={**os.environ, "DOCKER": str(docker)}, capture_output=True, text=True)
+    result = subprocess.run(["bash", str(script), "activate", deployment], cwd=tmp_path, env={**os.environ, "DOCKER": str(docker)}, capture_output=True, text=True)
     assert result.returncode != 0
-    if bad_fixture:
+    if bad_fixture or already_accepted:
         assert "ROLLED_BACK:" not in result.stdout
         assert not (tmp_path / "backups").exists()
         assert (tmp_path / "mcp/server.py").read_text() == "old runtime"
@@ -54,3 +61,17 @@ exit 0
 
 def test_changed_evaluation_fixture_stops_before_mutation(tmp_path):
     test_failed_build_restores_runtime_and_preserves_keys(tmp_path, bad_fixture=True)
+
+
+def test_accepted_deployment_stops_before_mutation(tmp_path):
+    test_failed_build_restores_runtime_and_preserves_keys(tmp_path, already_accepted=True)
+
+
+def test_runtime_code_change_is_a_new_deployment():
+    spec = importlib.util.spec_from_file_location("deploy_library", Path(__file__).with_name("deploy-library.py"))
+    deploy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(deploy)
+    inventory = {"code/mcp/server.py": {"sha256": "a"}, "library-host.sh": {"sha256": "b"}, "release/catalog.json": {"sha256": "c"}}
+    changed_code = {**inventory, "code/mcp/server.py": {"sha256": "d"}}
+    changed_release = {**inventory, "release/catalog.json": {"sha256": "e"}}
+    assert deploy.runtime_id(changed_code) != deploy.runtime_id(inventory) == deploy.runtime_id(changed_release)
