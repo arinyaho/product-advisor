@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from company_context.collect_slack import Slack
 from company_context.context import Corpus, digest, timestamp
-from company_context.document_sources import IncompleteCapture, export_capture, merge_records, refresh_document_access
+from company_context.document_sources import IncompleteCapture, export_capture, merge_records, refresh_document_access, resource_identity
 from company_context.sync import publish_snapshot, refresh_access, reported_coverage, require_access, withdraw_changed, write_json
 
 
@@ -70,6 +70,20 @@ async def _synchronize(root, settings):
         except IncompleteCapture as error:
             status[provider] = {"phase": str(error)}
             continue
+        if provider == "jira":
+            has_managed_jira = any(
+                row.get("provider_scope", {}).get("provider") == "jira" for row in old["records"]
+            )
+            if has_managed_jira and coverage.get("jira", {}).get("capture_id") != incoming["collection"]["capture_id"]:
+                status[provider] = {"phase": "jira_capture_changed"}
+                continue
+            aliases = {
+                resource_identity(row, "jira") for row in old["records"]
+                if row.get("provider_scope", {}).get("provider") != "jira"
+            }
+            if any(resource_identity(row, "jira") in aliases for row in incoming["records"]):
+                status[provider] = {"phase": "jira_unmanaged_alias_overlap"}
+                continue
         complete = incoming["collection"].get("capture_complete", True)
         if not complete and any(r.get("provider_scope", {}).get("provider") == provider for r in old["records"]) and coverage.get(provider, {}).get("capture_id") != incoming["collection"].get("capture_id"):
             status[provider] = {"phase": "new_capture_in_progress"}

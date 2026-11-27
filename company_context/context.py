@@ -26,6 +26,10 @@ import numpy as np
 ENGINE_VERSION = "1.5.7"
 MODEL_TIMEOUT_SECONDS = 180
 CHUNK_CHARACTERS = 1600
+JIRA_TENANT = re.compile(r"[a-z0-9-]+\.atlassian\.net")
+JIRA_PROJECT = re.compile(r"[A-Z][A-Z0-9_]{0,29}")
+JIRA_ISSUE_ID = re.compile(r"[0-9]{1,32}")
+JIRA_CONNECTION = re.compile(r"[a-f0-9]{64}")
 PRIVATE_NETWORKS = tuple(ipaddress.ip_network(value) for value in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "fc00::/7", "::1/128",
 ))
@@ -46,6 +50,13 @@ def source_url(value):
     parsed = urlsplit(value)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("Source links must be HTTPS URLs without credentials")
+
+
+def jira_link(url):
+    parsed = urlsplit(url)
+    tenant = parsed.hostname or ""
+    key = re.fullmatch(r"/browse/([A-Z][A-Z0-9_]{0,29}-[0-9]+)/?", parsed.path)
+    return (tenant, key[1]) if parsed.scheme == "https" and JIRA_TENANT.fullmatch(tenant) and key else None
 
 
 def slack_channel_id(url):
@@ -108,10 +119,20 @@ class Corpus:
             validate_slack_source(source)
             if "provider_scope" in source:
                 scope = source["provider_scope"]
-                if not isinstance(scope, dict) or scope.get("provider") not in ("notion", "drive") or any(not isinstance(scope.get(key), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", scope[key]) for key in ("connection", "resource_id")):
+                if not isinstance(scope, dict) or scope.get("provider") not in ("notion", "drive", "jira") or any(not isinstance(scope.get(key), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", scope[key]) for key in ("connection", "resource_id")):
                     raise ValueError("Document sources require a validated provider identity")
                 if not isinstance(scope.get("dependencies", []), list) or any(not isinstance(v, str) or not re.fullmatch(r"block:[A-Za-z0-9_-]{1,128}", v) or scope["provider"] != "notion" for v in scope.get("dependencies", [])):
                     raise ValueError("Invalid document dependency identity")
+                if scope["provider"] == "jira":
+                    link = jira_link(source["url"])
+                    if (
+                        source["source_type"] != "jira" or source["record_kind"] != "source" or not link
+                        or source["url"] != f"https://{link[0]}/browse/{link[1]}"
+                        or source["source_id"] != f"jira:{link[0]}:{scope['resource_id']}"
+                        or not JIRA_ISSUE_ID.fullmatch(scope["resource_id"])
+                        or not JIRA_CONNECTION.fullmatch(scope["connection"])
+                    ):
+                        raise ValueError("Jira source identity or canonical link differs")
             if len(source["text"]) > 2_000_000 or any(len(source[k]) > 2048 for k in ("source_id", "url", "title")):
                 raise ValueError("Source exceeds snapshot size limits")
             timestamp(source["collected_at"])

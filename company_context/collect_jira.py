@@ -7,11 +7,14 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 
 import httpx
 
 from company_context.collect_slack import SECRET
+from company_context.context import JIRA_CONNECTION, JIRA_ISSUE_ID, JIRA_PROJECT, JIRA_TENANT
 
 
 ISSUE_FIELDS = "project,summary,description,reporter,created,updated,status,issuetype,parent,issuelinks"
@@ -19,16 +22,31 @@ OMITTED_FIELDS = ("comments", "attachments", "changelog", "linked_issue_bodies")
 BLOCK_NODES = {"paragraph", "heading", "listItem", "codeBlock", "blockquote", "tableRow"}
 
 
+class JiraIdentityError(ValueError):
+    pass
+
+
+class JiraHTTPError(RuntimeError):
+    def __init__(self, status):
+        super().__init__(f"jira_http_{status}")
+        self.status = status
+
+
 class Jira:
     def __init__(self, tenant, client):
         self.client = client
         self.tenant = tenant
-        me = self.get("myself")
+        try:
+            me = self.get("myself")
+        except JiraHTTPError as error:
+            if error.status in (401, 403):
+                raise JiraIdentityError("Jira rejected the reader credentials") from None
+            raise
         account = me.get("accountId")
         if me.get("active") is not True or not isinstance(account, str) or not account:
-            raise ValueError("Jira did not identify an active account")
+            raise JiraIdentityError("Jira did not identify an active account")
         if str(me.get("emailAddress", "")).casefold() != os.environ["ATLASSIAN_EMAIL"].casefold():
-            raise ValueError("Jira account differs from the configured reader")
+            raise JiraIdentityError("Jira account differs from the configured reader")
         self.connection = hashlib.sha256(f"{tenant}\n{account}".encode()).hexdigest()
 
     def get(self, path, **params):
@@ -37,7 +55,7 @@ class Jira:
         except httpx.RequestError:
             raise RuntimeError("Jira request failed; rerun the bounded capture after review") from None
         if response.status_code != 200:
-            raise RuntimeError(f"jira_http_{response.status_code}")
+            raise JiraHTTPError(response.status_code)
         data = response.json()
         if not isinstance(data, dict):
             raise ValueError("Expected a Jira response object")
@@ -73,7 +91,7 @@ def issue_timestamp(value):
 
 def issue_record(issue, tenant, connection, project, collected_at):
     identity = issue.get("id")
-    if not isinstance(identity, str) or not re.fullmatch(r"[0-9]{1,32}", identity):
+    if not isinstance(identity, str) or not JIRA_ISSUE_ID.fullmatch(identity):
         raise ValueError("Invalid Jira issue ID")
     key = issue_key(issue.get("key"))
     fields = issue["fields"]
@@ -158,25 +176,106 @@ def save_capture(output, snapshot):
         os.link(staged.name, output)
 
 
+def access_receipt(tenant, client, project, connection, issues):
+    receipt = {"visible": [], "denied": [], "failure": None}
+    try:
+        api = Jira(tenant, client)
+        if api.connection != connection:
+            raise JiraIdentityError("Jira account fingerprint changed")
+        for identity, key in sorted(issues.items()):
+            try:
+                item = api.get("issue/" + identity, fields="project")
+            except JiraHTTPError as error:
+                if error.status not in (403, 404):
+                    raise
+                receipt["denied"].append(identity)
+                continue
+            if item.get("id") != identity:
+                raise ValueError("Jira returned another issue")
+            membership = item["fields"]["project"]["key"]
+            if not isinstance(membership, str) or not JIRA_PROJECT.fullmatch(membership):
+                raise ValueError("Jira returned invalid project membership")
+            current_key = issue_key(item.get("key"))
+            if membership != project or current_key != key:
+                receipt["denied"].append(identity)
+            else:
+                receipt["visible"].append(identity)
+    except JiraIdentityError:
+        receipt["failure"] = "identity"
+    except JiraHTTPError as error:
+        receipt["failure"] = f"http_{error.status}"
+    except (ValueError, KeyError, TypeError, RuntimeError):
+        receipt["failure"] = "lookup"
+    return receipt
+
+
+def mien_access(config, issues):
+    # Keep Jira credentials inside the explicitly configured Mien child.
+    command = [
+        config["mien_executable"], "exec", config["mien_profile"], "--",
+        sys.executable, "-m", "company_context.collect_jira", "access",
+        "--tenant", config["tenant"], "--project", config["project"], "--connection", config["connection"],
+    ]
+    try:
+        response = subprocess.run(
+            command, input=json.dumps(issues), capture_output=True, text=True, timeout=180, check=True,
+            env={name: value for name, value in os.environ.items() if not name.startswith("ATLASSIAN_")},
+        )
+        result = json.loads(response.stdout)
+        visible, denied, failure = result["visible"], result["denied"], result["failure"]
+        if (
+            not isinstance(visible, list) or not isinstance(denied, list)
+            or any(not isinstance(v, str) or v not in issues for v in visible + denied)
+            or len(set(visible + denied)) != len(visible + denied)
+            or (failure is None and set(visible + denied) != set(issues))
+            or (failure is not None and (
+                not isinstance(failure, str) or not re.fullmatch(r"(?:identity|lookup|http_[1-5][0-9]{2})", failure)
+            ))
+        ):
+            raise ValueError("Invalid Jira ACL receipt")
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        raise RuntimeError("Jira ACL worker did not return a valid receipt") from None
+    return visible, denied, failure
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("capture", "access"), nargs="?", default="capture")
     parser.add_argument("--tenant", required=True)
     parser.add_argument("--project", required=True)
-    parser.add_argument("--since", required=True, type=date.fromisoformat)
+    parser.add_argument("--since", type=date.fromisoformat)
     parser.add_argument("--max-issues", type=int, default=25)
-    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--connection")
     args = parser.parse_args()
-    if not re.fullmatch(r"[a-z0-9-]+\.atlassian\.net", args.tenant):
+    if not JIRA_TENANT.fullmatch(args.tenant):
         parser.error("Tenant must be an Atlassian Cloud hostname")
-    if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,29}", args.project) or not 1 <= args.max_issues <= 100:
+    if not JIRA_PROJECT.fullmatch(args.project) or not 1 <= args.max_issues <= 100:
         parser.error("Provide a valid project key and an issue limit between 1 and 100")
     origin = "https://" + args.tenant
     if os.environ.get("ATLASSIAN_BASE_URL", "").rstrip("/") != origin:
         parser.error("Jira tenant differs from the configured reader's tenant")
     if not os.environ.get("ATLASSIAN_EMAIL") or not os.environ.get("ATLASSIAN_API_TOKEN"):
         parser.error("Run with the authorized Jira credentials")
+    if args.command == "access":
+        if not args.connection or not JIRA_CONNECTION.fullmatch(args.connection):
+            parser.error("Jira access checks require a pinned account fingerprint")
+        try:
+            issues = json.load(sys.stdin)
+            if not isinstance(issues, dict) or not 1 <= len(issues) <= 100 or any(
+                not JIRA_ISSUE_ID.fullmatch(identity) or not issue_key(key).startswith(args.project + "-")
+                for identity, key in issues.items()
+            ):
+                raise ValueError
+        except (TypeError, ValueError):
+            parser.error("Jira access checks require a bounded issue ID and key map")
+    elif args.since is None or args.output is None:
+        parser.error("Provide a date and a private output path for Jira capture")
     with httpx.Client(base_url=origin, auth=(os.environ["ATLASSIAN_EMAIL"], os.environ["ATLASSIAN_API_TOKEN"]),
                       headers={"Accept": "application/json"}, timeout=30, trust_env=False) as client:
+        if args.command == "access":
+            print(json.dumps(access_receipt(args.tenant, client, args.project, args.connection, issues)))
+            return
         snapshot = capture(Jira(args.tenant, client), args.project, args.since, args.max_issues)
     save_capture(args.output, snapshot)
     print(json.dumps({"captured_issues": len(snapshot["records"]), "omissions": snapshot["collection"]["omissions"]}))
