@@ -170,3 +170,44 @@ def test_embedding_worker_allows_response_within_model_request_timeout(monkeypat
         finally:
             await close_engine(rag)
     asyncio.run(run())
+
+
+def test_parallel_build_extends_legacy_index_and_overlaps_extraction(tmp_path):
+    class ConcurrentModels(SyntheticModels):
+        active = peak = 0
+
+        async def extract(self, *args, **kwargs):
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            try:
+                await asyncio.sleep(.01)
+                return await super().extract(*args, **kwargs)
+            finally:
+                self.active -= 1
+
+    async def run():
+        original = tmp_path / "legacy"
+        candidate = tmp_path / "next"
+        models = ConcurrentModels()
+        rows = [record("existing", text="Original evidence.")]
+        await build(corpus(rows).snapshot, original, models)
+        rows.extend(record(str(i), text=f"Distinct evidence {i}. \n") for i in range(4))
+        expected = corpus(rows)
+        await build(expected.snapshot, candidate, models, original, parallelism=4)
+        assert models.peak == 4
+        rows.append(record("serial", text="A later document from a serial worker."))
+        serial = tmp_path / "serial"
+        expected = corpus(rows)
+        await build(expected.snapshot, serial, models, candidate)
+        reopened, rag = await open_index(serial, models)
+        try:
+            assert reopened.records == expected.records
+            assert set(reopened.chunks) == set(expected.chunks)
+            for mode in ("naive", "mix"):
+                result = await search(reopened, rag, "Pilot evaluation", mode, 20)
+                assert result["retrieval"]["actual_mode"] == mode
+                assert {row["source_id"] for row in result["results"]} == set(expected.records)
+        finally:
+            await close_engine(rag)
+
+    asyncio.run(run())

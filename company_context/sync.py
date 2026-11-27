@@ -202,7 +202,11 @@ async def publish_snapshot(args, snapshot, state, previous, refresh, updates):
         base = previous if previous_snapshot and previous_snapshot.get("collection", {}).get("kind") in ("slack_channel_capture", "company_capture") else None
         if base and json.loads((base / "ready.json").read_text())["config"] != index_config(models, corpus):
             base = None
-        await build(snapshot, candidate, models, base)
+        parallelism = getattr(args, "index_parallelism", 1)
+        if parallelism > 1:
+            await build(snapshot, candidate, models, base, parallelism=parallelism)
+        else:
+            await build(snapshot, candidate, models, base)
         verified, rag = await open_index(candidate, models)
         from company_context.server import create_app, token_from_file
         from starlette.testclient import TestClient
@@ -247,12 +251,20 @@ async def publish_snapshot(args, snapshot, state, previous, refresh, updates):
         raise
 
 
+class SlackCapturePending(ValueError):
+    """The raw Slack capture can resume without publishing a partial snapshot."""
+
+
 async def synchronize(args):
     root = args.state_dir
     policy_path = root / "document-sources.json"
     policy = {}
+    parallelism = 1
     if args.command == "sync" and policy_path.exists():
         policy = json.loads(policy_path.read_text())
+        parallelism = policy.get("index_parallelism", 1)
+        if type(parallelism) is not int or not 1 <= parallelism <= 4:
+            raise ValueError("Index parallelism must be an integer from one to four")
         args.budget_usd = policy["budget_usd"]
         args.max_model_calls = policy.get("max_model_calls", args.max_model_calls)
     api = Slack(args.token_file)
@@ -278,6 +290,8 @@ async def synchronize(args):
                 try:
                     fcntl.flock(initial_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
+                    if parallelism > 1:
+                        raise SlackCapturePending("Initial Slack capture is still running") from None
                     print(json.dumps({"phase": "waiting_for_initial_capture"}))
                     return
                 # Resume an interrupted bootstrap; never compete with its original collector.
@@ -287,7 +301,7 @@ async def synchronize(args):
                     db = open_store(bootstrap, float(meta["since"]), float(meta["until"]))
                     try:
                         if not collect(api, db, float(meta["since"]), float(meta["until"])):
-                            raise ValueError("Initial capture is incomplete; no candidate was built")
+                            raise SlackCapturePending("Initial capture is incomplete; no candidate was built")
                     finally:
                         db.close()
                 # Preserve the completed archive while revalidating its current channel scope.
@@ -299,7 +313,7 @@ async def synchronize(args):
             db = open_store(database, float(meta["since"]), float(meta["until"]))
             try:
                 if not collect(api, db, float(meta["since"]), float(meta["until"])):
-                    raise ValueError("Initial capture revalidation is incomplete; no candidate was built")
+                    raise SlackCapturePending("Initial capture revalidation is incomplete; no candidate was built")
             finally:
                 db.close()
         else:
@@ -323,7 +337,7 @@ async def synchronize(args):
                     prior.close(); prior = None
             try:
                 if not collect(api, db, since, until, prior):
-                    raise ValueError("Capture is incomplete; no candidate was built")
+                    raise SlackCapturePending("Capture is incomplete; no candidate was built")
             finally:
                 db.close()
                 if prior:
@@ -387,6 +401,10 @@ async def synchronize(args):
         complete = len(retained) + len(selected) == len(slack_rows)
         snapshot["collection"]["slack_indexing"] = {"available_sources": len(slack_rows), "indexed_sources": len(retained) + len(selected), "complete": complete}
         updates = {"last_database": str(database), "slack_batch_database": None if complete else str(database), "slack_batch_excluded_channels": [] if complete else state.get("slack_batch_excluded_channels", [])}
+        if parallelism > 1:
+            from company_context.document_sync import synchronize as publish_combined
+            await publish_combined(root, policy, slack_batch=(snapshot, updates))
+            return
         corpus = Corpus(snapshot)
         require_access(corpus, root / "access.json")
         if previous_snapshot and sorted(previous_snapshot["records"], key=lambda r: r["source_id"]) == sorted(snapshot["records"], key=lambda r: r["source_id"]):
@@ -395,6 +413,14 @@ async def synchronize(args):
             write_json(state_path, state)
             return
         await publish_snapshot(args, snapshot, state, previous, lambda: refresh_access(api, root / "access.json"), updates)
+    except SlackCapturePending:
+        if parallelism == 1:
+            raise
+        # Keep Slack capture resumable and revalidate all evidence in the
+        # existing document publisher before sending any model requests.
+        from company_context.document_sync import synchronize as publish_documents
+        print(json.dumps({"phase": "slack_capture_pending_document_sync"}), flush=True)
+        await publish_documents(root, policy)
     finally:
         api.client.close()
 

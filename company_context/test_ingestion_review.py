@@ -406,3 +406,21 @@ def test_completed_bootstrap_schema_is_not_migrated_in_place(tmp_path, monkeypat
     with pytest.raises(ValueError, match="revalidation is incomplete"):
         asyncio.run(sync.synchronize(args))
     assert args.bootstrap_database.read_bytes() == before
+
+
+def test_incomplete_slack_capture_allows_document_publication(tmp_path, monkeypatch):
+    from company_context import document_sync
+    args = setup_sync(tmp_path, monkeypatch)
+    sync.write_json(tmp_path / "document-sources.json", {"index_parallelism": 4, "budget_usd": 200})
+    monkeypatch.setattr(sync, "collect", lambda *a: False)
+    observed = []
+
+    async def publish_documents(root, settings, *, slack_batch=None):
+        state = json.loads((root / "sync.json").read_text())
+        observed.append((settings["index_parallelism"], slack_batch, state["pending_database"]))
+
+    monkeypatch.setattr(document_sync, "synchronize", publish_documents)
+    asyncio.run(sync.synchronize(args))
+    [(parallelism, slack_batch, capture)] = observed
+    assert parallelism == 4 and slack_batch is None
+    assert Path(capture).is_file()
