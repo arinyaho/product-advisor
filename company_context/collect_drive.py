@@ -11,7 +11,7 @@ import sqlite3
 import time
 import subprocess
 import sys
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import unquote_plus, urlsplit
 
 from company_context.collect_slack import SECRET
 from company_context.context import digest
@@ -34,12 +34,23 @@ def text_runs(value):
     return ""
 
 
+def is_resource_key_parameter(field):
+    return unquote_plus(field.partition("=")[0]).lower() == "resourcekey"
+
+
 def note_resource_keys(item):
     if item.pop("resourceKey", None):
         item["resourceKeyPresent"] = True
     shortcut = item.get("shortcutDetails", {})
     if shortcut.pop("targetResourceKey", None):
         shortcut["targetResourceKeyPresent"] = True
+    if link := item.get("webViewLink"):
+        parts = urlsplit(link)
+        parameters = parts.query.split("&")
+        safe = [field for field in parameters if not is_resource_key_parameter(field)]
+        if len(safe) != len(parameters):
+            item["resourceKeyPresent"] = True
+            item["webViewLink"] = parts._replace(query="&".join(safe)).geturl()
     return item
 
 
@@ -183,7 +194,7 @@ def retry_capture_errors(db):
 def has_resource_key(item):
     # Older captures may have the key only in the provider's link.
     return item.get("resourceKeyPresent") or any(
-        name.lower() == "resourcekey" for name, _ in parse_qsl(urlsplit(item.get("webViewLink", "")).query)
+        is_resource_key_parameter(field) for field in urlsplit(item.get("webViewLink") or "").query.split("&")
     )
 
 
@@ -220,14 +231,25 @@ def collect(api, db):
             if not following: break
             cursor = following
     while pending := db.execute("SELECT id,metadata FROM files WHERE status='pending' ORDER BY id LIMIT 1").fetchone():
-        identity, saved = pending
+        identity, raw_metadata = pending
         try:
-            saved_key = has_resource_key(json.loads(saved))
+            saved = json.loads(raw_metadata)
+            saved_key = has_resource_key(saved)
             item = capture_metadata(api, identity, resource_key_present=saved_key)
             if item.get("trashed"): raise Omitted("trashed")
             if SECRET.search(json.dumps(item)): raise Omitted("credential_pattern")
+            if saved_key:
+                item["resourceKeyPresent"] = True
+            shortcut = item.get("shortcutDetails", {})
+            saved_shortcut = saved.get("shortcutDetails", {})
+            target_id = shortcut.get("targetId")
+            if target_id and target_id == saved_shortcut.get("targetId") and saved_shortcut.get("targetResourceKeyPresent"):
+                shortcut["targetResourceKeyPresent"] = True
+            # Preserve observed key evidence even if a later content or metadata read fails.
+            if has_resource_key(item) or shortcut.get("targetResourceKeyPresent"):
+                with db:
+                    db.execute("UPDATE files SET metadata=? WHERE id=?", (json.dumps(item), identity))
             if item["mimeType"] == "application/vnd.google-apps.shortcut":
-                shortcut = item["shortcutDetails"]
                 target = capture_metadata(api, shortcut["targetId"], "shortcut_target_not_accessible",
                                           resource_key_present=shortcut.get("targetResourceKeyPresent"))
                 if SECRET.search(json.dumps(target)): raise Omitted("credential_pattern")

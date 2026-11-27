@@ -168,3 +168,45 @@ def test_google_metadata_reports_presence_without_retaining_raw_resource_keys(mo
                 "shortcutDetails": {"targetId": "target", "targetResourceKeyPresent": True}}
     assert api.page("user", "")["files"] == [expected]
     assert api.metadata("link") == expected
+
+
+def test_failed_reads_preserve_known_resource_keys_across_retries(tmp_path):
+    class KeyHistory(API):
+        def scopes(self): return ["user"]
+        def page(self, scope, cursor):
+            return {"files": [
+                {"id": "file", "mimeType": "text/plain"},
+                {"id": "shortcut", "mimeType": "application/vnd.google-apps.shortcut",
+                 "shortcutDetails": {"targetId": "target", "targetResourceKeyPresent": True}},
+            ]}
+        def metadata(self, identity):
+            if identity == "file" and identity not in self.contents:
+                return {**super().metadata(identity), "resourceKeyPresent": True}
+            if identity == "shortcut":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "target"}}
+            raise RuntimeError("drive_http_404")
+
+    from company_context.collect_drive import retry_capture_errors
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    api = KeyHistory()
+    for _ in range(2):
+        collect(api, db)
+        assert set(db.execute("SELECT id,status,reason FROM files")) == {
+            (identity, "failed", "drive_http_404") for identity in ("file", "shortcut")
+        }
+        assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+        assert retry_capture_errors(db) == 2
+    db.close()
+
+
+def test_resource_key_values_are_removed_from_new_provider_links(monkeypatch):
+    from company_context.collect_drive import Drive
+
+    api = Drive.__new__(Drive)
+    link = "https://drive.google.com/file/d/id/view?foo=a%20b&resourcE%4Bey=opaque&foo=c#section"
+    monkeypatch.setattr(api, "json", lambda *a, **kw: {"id": "id", "webViewLink": link})
+    assert api.metadata("id") == {
+        "id": "id", "resourceKeyPresent": True,
+        "webViewLink": "https://drive.google.com/file/d/id/view?foo=a%20b&foo=c#section",
+    }
