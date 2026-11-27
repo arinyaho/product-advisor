@@ -202,10 +202,15 @@ def has_resource_key(item):
 
 def remember_keys(db, item):
     shortcut = item.get("shortcutDetails", {})
+    identities = []
     if has_resource_key(item):
-        db.execute("INSERT OR IGNORE INTO keyed_resources VALUES (?)", (item["id"],))
+        identities.append(item["id"])
     if shortcut.get("targetResourceKeyPresent") and shortcut.get("targetId"):
-        db.execute("INSERT OR IGNORE INTO keyed_resources VALUES (?)", (shortcut["targetId"],))
+        identities.append(shortcut["targetId"])
+    for identity in identities:
+        db.execute("INSERT OR IGNORE INTO keyed_resources VALUES (?)", (identity,))
+        db.execute("""UPDATE files SET status='pending', reason=NULL
+                      WHERE id=? AND status='omitted' AND reason='file_not_accessible'""", (identity,))
 
 
 def known_key(db, identity):
@@ -273,10 +278,11 @@ def collect(api, db):
                     remember_keys(db, item)
                     db.execute("UPDATE files SET metadata=? WHERE id=?", (json.dumps(item), identity))
             if item["mimeType"] == "application/vnd.google-apps.shortcut":
+                target_key = known_key(db, shortcut["targetId"])
                 target = capture_metadata(api, shortcut["targetId"], "shortcut_target_not_accessible",
-                                          resource_key_present=known_key(db, shortcut["targetId"]))
+                                          resource_key_present=target_key)
                 if SECRET.search(json.dumps(target)): raise Omitted("credential_pattern")
-                if shortcut.get("targetResourceKeyPresent"):
+                if target_key:
                     target["resourceKeyPresent"] = True
                 with db:
                     db.execute("INSERT OR IGNORE INTO files(id,metadata) VALUES (?,?)", (target["id"], json.dumps(target, ensure_ascii=False)))

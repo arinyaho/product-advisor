@@ -277,3 +277,24 @@ def test_duplicate_inventory_retains_file_and_shortcut_key_evidence(tmp_path, ke
     assert collect(Duplicate(), db)["states"] == {"failed": 2}
     assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
     db.close()
+
+
+def test_resumed_listing_with_key_revisits_previously_missing_target(tmp_path):
+    class Resumed(API):
+        def scopes(self): return ["shared"]
+        def page(self, scope, cursor):
+            return {"files": [{"id": "a", "mimeType": "text/plain", "resourceKeyPresent": True},
+                              {"id": "b", "mimeType": "application/vnd.google-apps.shortcut"}]}
+        def metadata(self, identity):
+            if identity == "b":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "a"}}
+            return super().metadata(identity)
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    with db:
+        db.execute("""INSERT INTO files(id,metadata,status,reason)
+                      VALUES ('a','{"id":"a"}','omitted','file_not_accessible')""")
+    collect(Resumed(), db)
+    assert db.execute("SELECT status,text FROM files WHERE id='a'").fetchone() == ("ready", "Original a")
+    db.close()
