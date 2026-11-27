@@ -46,7 +46,9 @@ def jira(monkeypatch, handler, *, email="worker@example.net"):
     def request(req):
         assert req.url.host == TENANT
         if req.url.path.endswith("/myself"):
-            return httpx.Response(200, json={"active": True, "accountId": "jira-user:1", "emailAddress": email})
+            return httpx.Response(200, json={
+                "active": True, "accountId": "jira-user:1", "emailAddress": email, "timeZone": "Asia/Seoul",
+            })
         return handler(req)
 
     return httpx.Client(transport=httpx.MockTransport(request), base_url=f"https://{TENANT}")
@@ -124,3 +126,29 @@ def test_capture_counts_secret_pattern_as_omission(monkeypatch):
     assert result["records"] == []
     assert result["collection"]["discovered_issues"] == 1
     assert result["collection"]["omissions"] == {"credential_pattern": 1, "source_size_limit": 0}
+
+
+def test_capture_rejects_an_issue_before_jiras_local_midnight(monkeypatch):
+    row = issue()
+    row["fields"]["updated"] = "2026-10-31T14:59:59+00:00"
+    def handler(req):
+        return httpx.Response(200, json={"issues": [row], "isLast": True})
+    with jira(monkeypatch, handler) as client, pytest.raises(ValueError, match="before the capture cutoff"):
+        capture(Jira(TENANT, client), "ES2", SINCE, 10)
+    row["fields"]["updated"] = "2026-10-31T15:00:00+00:00"
+    with jira(monkeypatch, handler) as client:
+        result = capture(Jira(TENANT, client), "ES2", SINCE, 10)
+    assert result["collection"]["jira_timezone"] == "Asia/Seoul"
+    assert [row["source_id"] for row in result["records"]] == [f"jira:{TENANT}:12"]
+
+
+def test_capture_limits_consecutive_empty_pages(monkeypatch):
+    requests = []
+    def handler(req):
+        requests.append(req.url.params.get("nextPageToken"))
+        if len(requests) == 4:
+            pytest.fail("Jira received more pages than the capture cap allows")
+        return httpx.Response(200, json={"issues": [], "isLast": False, "nextPageToken": str(len(requests))})
+    with jira(monkeypatch, handler) as client, pytest.raises(ValueError, match="page limit exceeded"):
+        capture(Jira(TENANT, client), "ES2", SINCE, 2)
+    assert requests == [None, "1", "2"]

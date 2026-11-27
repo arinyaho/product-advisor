@@ -12,7 +12,7 @@ import sqlite3
 import httpx
 
 from company_context.collect_drive import Drive
-from company_context.collect_jira import OMITTED_FIELDS as JIRA_OMITTED_FIELDS, mien_access
+from company_context.collect_jira import OMITTED_FIELDS as JIRA_OMITTED_FIELDS, jira_cutoff, mien_access
 from company_context.collect_notion import Notion
 from company_context.collect_slack import SECRET
 from company_context.context import Corpus, JIRA_CONNECTION, JIRA_PROJECT, JIRA_TENANT, digest, jira_link, timestamp
@@ -177,7 +177,8 @@ def jira_resources(rows, tenant, project, connection):
 
 def export_jira_capture(settings, principal):
     tenant, project, connection = jira_scope(settings, principal)
-    since = date.fromisoformat(settings["since"]).isoformat()
+    since = date.fromisoformat(settings["since"])
+    cutoff = jira_cutoff(since, settings["jira_timezone"])
     path = Path(settings["capture_file"])
     try:
         with path.open("rb") as stream:
@@ -194,7 +195,8 @@ def export_jira_capture(settings, principal):
     meta, rows = capture["collection"], capture["records"]
     if any(meta.get(key) != expected for key, expected in {
         "provider": "jira", "capture_schema": 1, "tenant": tenant, "project": project,
-        "connection": connection, "since": since, "omitted_fields": list(JIRA_OMITTED_FIELDS),
+        "connection": connection, "since": since.isoformat(), "jira_timezone": settings["jira_timezone"],
+        "omitted_fields": list(JIRA_OMITTED_FIELDS),
     }.items()):
         raise ValueError("Jira capture metadata differs from the pinned scope")
     timestamp(meta["completed_at"])
@@ -211,6 +213,8 @@ def export_jira_capture(settings, principal):
     Corpus(snapshot)
     if any(row.get("provider_scope", {}).get("provider") != "jira" or SECRET.search(row["text"]) for row in rows):
         raise ValueError("Jira capture includes non-Jira or withheld records")
+    if any(row["updated_at"] is None or timestamp(row["updated_at"]) < cutoff for row in rows):
+        raise ValueError("Jira issue was updated before the capture cutoff")
     if len(jira_resources(rows, tenant, project, connection)) != len(rows):
         raise ValueError("Jira capture contains repeated issue identities")
     return snapshot

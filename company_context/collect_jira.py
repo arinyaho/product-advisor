@@ -1,7 +1,7 @@
 """Capture a bounded set of Jira Cloud issues under one verified account."""
 
 import argparse
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 import hashlib
 import json
 import os
@@ -10,11 +10,12 @@ import re
 import subprocess
 import sys
 import tempfile
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
 from company_context.collect_slack import SECRET
-from company_context.context import JIRA_CONNECTION, JIRA_ISSUE_ID, JIRA_PROJECT, JIRA_TENANT
+from company_context.context import JIRA_CONNECTION, JIRA_ISSUE_ID, JIRA_PROJECT, JIRA_TENANT, timestamp
 
 
 ISSUE_FIELDS = "project,summary,description,reporter,created,updated,status,issuetype,parent,issuelinks"
@@ -48,6 +49,7 @@ class Jira:
         if str(me.get("emailAddress", "")).casefold() != os.environ["ATLASSIAN_EMAIL"].casefold():
             raise JiraIdentityError("Jira account differs from the configured reader")
         self.connection = hashlib.sha256(f"{tenant}\n{account}".encode()).hexdigest()
+        self.timezone = me.get("timeZone")
 
     def get(self, path, **params):
         try:
@@ -83,10 +85,14 @@ def issue_key(value):
 
 
 def issue_timestamp(value):
-    result = datetime.fromisoformat(value)
-    if result.tzinfo is None:
-        raise ValueError("Jira timestamps must include a timezone")
-    return result.astimezone(timezone.utc).isoformat()
+    return timestamp(value).astimezone(timezone.utc).isoformat()
+
+
+def jira_cutoff(since, timezone_name):
+    try:
+        return datetime.combine(since, time.min, ZoneInfo(timezone_name))
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        raise ValueError("Jira capture requires the reader's valid timezone") from None
 
 
 def issue_record(issue, tenant, connection, project, collected_at):
@@ -128,14 +134,17 @@ def issue_record(issue, tenant, connection, project, collected_at):
 
 def capture(api, project, since, max_issues):
     collected_at = datetime.now(timezone.utc).isoformat()
+    cutoff = jira_cutoff(since, api.timezone)
     params = {"jql": f'project = "{project}" AND updated >= "{since.isoformat()}" ORDER BY updated ASC, key ASC',
               "fields": ISSUE_FIELDS, "maxResults": min(max_issues, 50)}
     records, seen, cursors = [], set(), set()
     omissions = {"credential_pattern": 0, "source_size_limit": 0}
-    while True:
+    for _ in range(max_issues + 1):
         page = api.get("search/jql", **params)
         for issue in page["issues"]:
             row = issue_record(issue, api.tenant, api.connection, project, collected_at)
+            if timestamp(row["updated_at"]) < cutoff:
+                raise ValueError("Jira issue was updated before the capture cutoff")
             identity = row["provider_scope"]["resource_id"]
             if identity in seen:
                 raise ValueError("Jira returned a repeated issue ID; capture not saved")
@@ -157,10 +166,13 @@ def capture(api, project, since, max_issues):
             raise ValueError("Jira issue limit exceeded; narrow the date range")
         cursors.add(cursor)
         params["nextPageToken"] = cursor
+    else:
+        raise ValueError("Jira page limit exceeded; narrow the date range")
     return {
         "records": records,
         "collection": {"provider": "jira", "capture_schema": 1, "tenant": api.tenant,
                        "connection": api.connection, "project": project, "since": since.isoformat(),
+                       "jira_timezone": api.timezone,
                        "completed_at": datetime.now(timezone.utc).isoformat(), "discovered_issues": len(seen),
                        "omissions": omissions, "omitted_fields": list(OMITTED_FIELDS)},
     }
@@ -176,8 +188,14 @@ def save_capture(output, snapshot):
         os.link(staged.name, output)
 
 
-def access_receipt(tenant, client, project, connection, issues):
+def access_receipt(tenant, client, project, connection, issues, on_denied=None):
     receipt = {"visible": [], "denied": [], "failure": None}
+
+    def deny(identity):
+        receipt["denied"].append(identity)
+        if on_denied:
+            on_denied(identity)
+
     try:
         api = Jira(tenant, client)
         if api.connection != connection:
@@ -188,7 +206,7 @@ def access_receipt(tenant, client, project, connection, issues):
             except JiraHTTPError as error:
                 if error.status not in (403, 404):
                     raise
-                receipt["denied"].append(identity)
+                deny(identity)
                 continue
             if item.get("id") != identity:
                 raise ValueError("Jira returned another issue")
@@ -197,7 +215,7 @@ def access_receipt(tenant, client, project, connection, issues):
                 raise ValueError("Jira returned invalid project membership")
             current_key = issue_key(item.get("key"))
             if membership != project or current_key != key:
-                receipt["denied"].append(identity)
+                deny(identity)
             else:
                 receipt["visible"].append(identity)
     except JiraIdentityError:
@@ -216,15 +234,37 @@ def mien_access(config, issues):
         sys.executable, "-m", "company_context.collect_jira", "access",
         "--tenant", config["tenant"], "--project", config["project"], "--connection", config["connection"],
     ]
+    failed = False
     try:
         response = subprocess.run(
             command, input=json.dumps(issues), capture_output=True, text=True, timeout=180, check=True,
             env={name: value for name, value in os.environ.items() if not name.startswith("ATLASSIAN_")},
         )
-        result = json.loads(response.stdout)
+        output = response.stdout
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
+        output = error.stdout or ""
+        failed = True
+    except OSError:
+        raise RuntimeError("Jira ACL worker did not return a valid receipt") from None
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    lines = output.splitlines(keepends=True)
+    final = lines.pop() if lines and not failed else ""
+    observed_denials = []
+    try:
+        for line in lines:
+            if not line.endswith("\n"):
+                raise ValueError("Incomplete Jira denial event")
+            event = json.loads(line)
+            identity = event["denied"]
+            if set(event) != {"denied"} or not isinstance(identity, str) or identity not in issues or identity in observed_denials:
+                raise ValueError("Invalid Jira denial event")
+            observed_denials.append(identity)
+        result = json.loads(final)
         visible, denied, failure = result["visible"], result["denied"], result["failure"]
         if (
             not isinstance(visible, list) or not isinstance(denied, list)
+            or denied != observed_denials
             or any(not isinstance(v, str) or v not in issues for v in visible + denied)
             or len(set(visible + denied)) != len(visible + denied)
             or (failure is None and set(visible + denied) != set(issues))
@@ -233,7 +273,9 @@ def mien_access(config, issues):
             ))
         ):
             raise ValueError("Invalid Jira ACL receipt")
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError):
+        if observed_denials:
+            return [], observed_denials, "worker"
         raise RuntimeError("Jira ACL worker did not return a valid receipt") from None
     return visible, denied, failure
 
@@ -274,7 +316,9 @@ def main():
     with httpx.Client(base_url=origin, auth=(os.environ["ATLASSIAN_EMAIL"], os.environ["ATLASSIAN_API_TOKEN"]),
                       headers={"Accept": "application/json"}, timeout=30, trust_env=False) as client:
         if args.command == "access":
-            print(json.dumps(access_receipt(args.tenant, client, args.project, args.connection, issues)))
+            def report_denial(identity):
+                print(json.dumps({"denied": identity}), flush=True)
+            print(json.dumps(access_receipt(args.tenant, client, args.project, args.connection, issues, report_denial)))
             return
         snapshot = capture(Jira(args.tenant, client), args.project, args.since, args.max_issues)
     save_capture(args.output, snapshot)

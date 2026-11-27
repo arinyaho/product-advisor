@@ -61,7 +61,7 @@ Live access checks exclude archived or unreadable pages and unavailable synced-b
 
 ## Jira pilot
 
-Use the company host and its authorized Mien profile to capture one explicit Jira Cloud project and update date. The collector uses read-only Jira API requests and writes a new capture in a private directory. An incomplete result, repeated issue, or exceeded limit leaves no output file.
+Use the company host and its authorized Mien profile to capture one explicit Jira Cloud project and update date. The date starts at midnight in the reader's configured Jira timezone. The collector uses read-only Jira API requests and writes a new capture in a private directory. An incomplete result, out-of-scope update, repeated issue, or exceeded issue or page limit leaves no output file.
 
 ```sh
 install -d -m 700 <private-pilot-directory>
@@ -70,7 +70,7 @@ mien exec <authorized-work-profile> -- .venv/bin/python -m company_context.colle
     --max-issues 25 --output <private-pilot-directory>/jira.json
 ```
 
-To opt in to publication, add the `jira` provider to the existing private `document-sources.json`. Set `capture_file`, the file's SHA-256 as `capture_sha256`, `tenant`, `project`, `since`, and the `connection` fingerprint from the capture metadata. Set `principal` to the authorized company-index reader, `mien_executable` to the absolute path to Mien, and `mien_profile` to the approved work profile. The publisher checks issue IDs, canonical URLs, project membership, and the Jira account again before model dispatch. Access refresh uses a single Mien subprocess for the same account. An issue the account loses access to is withdrawn through the existing publisher.
+To opt in to publication, add the `jira` provider to the existing private `document-sources.json`. Set `capture_file`, the file's SHA-256 as `capture_sha256`, `tenant`, `project`, `since`, `jira_timezone`, and the `connection` fingerprint from the capture metadata. Set `principal` to the authorized company-index reader, `mien_executable` to the absolute path to Mien, and `mien_profile` to the approved work profile. The publisher checks the update cutoff, issue IDs, canonical URLs, project membership, and the Jira account before model dispatch. Access refresh uses a single Mien subprocess for the same account. Confirmed denials survive a later timeout or failure and the existing publisher withdraws the affected issues.
 
 This pilot publishes a single pinned capture. A different capture cannot replace the one supplying existing managed Jira records, and an issue whose tenant and key overlap with a legacy unmanaged source is not admitted. Other existing sources remain in the index. Comments, attachments, changelog, and linked issue bodies are excluded. The regular shared publisher and budget apply. Jira collection itself has no automatic schedule.
 

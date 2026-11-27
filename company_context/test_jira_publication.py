@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import subprocess
 from types import SimpleNamespace
 
 import httpx
@@ -30,12 +31,12 @@ def frozen(tmp_path, rows, name="jira.json"):
     tmp_path.chmod(0o700)
     save_capture(path, {"records": rows, "collection": {
         "provider": "jira", "capture_schema": 1, "tenant": TENANT, "connection": CONNECTION,
-        "project": "ES2", "since": SINCE.isoformat(), "completed_at": COLLECTED,
+        "project": "ES2", "since": SINCE.isoformat(), "jira_timezone": "Asia/Seoul", "completed_at": COLLECTED,
         "discovered_issues": len(rows), "omitted_fields": list(OMITTED_FIELDS),
         "omissions": {"credential_pattern": 0, "source_size_limit": 0},
     }})
     return {"tenant": TENANT, "project": "ES2", "connection": CONNECTION, "principal": READER,
-            "since": SINCE.isoformat(), "capture_file": str(path),
+            "since": SINCE.isoformat(), "jira_timezone": "Asia/Seoul", "capture_file": str(path),
             "capture_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -55,6 +56,9 @@ def test_export_pins_bytes_reader_and_scope(tmp_path):
     different_project = frozen(tmp_path, [unrelated], "other.json")
     with pytest.raises(ValueError, match="outside the pinned capture scope"):
         document_sources.export_capture("jira", different_project, READER)
+    before_cutoff = frozen(tmp_path, [{**row, "updated_at": "2026-10-31T14:59:59+00:00"}], "old.json")
+    with pytest.raises(ValueError, match="before the capture cutoff"):
+        document_sources.export_capture("jira", before_cutoff, READER)
 
 
 @pytest.mark.parametrize("changes", [
@@ -103,18 +107,33 @@ def test_single_mien_child_has_no_parent_jira_credentials_and_rejects_extra_ids(
               "tenant": TENANT, "project": "ES2", "connection": CONNECTION}
     calls = []
     response = {"visible": ["12"], "denied": ["13"], "failure": None}
+    events = ['{"denied":"13"}']
+
     def run(argv, **kwargs):
         calls.append(argv)
         assert argv[:4] == ["/fixed/mien", "exec", "cryptolab", "--"]
         assert "previous-profile-token" not in argv and "ATLASSIAN_API_TOKEN" not in kwargs["env"]
         assert json.loads(kwargs["input"]) == {"12": "ES2-12", "13": "ES2-13"}
-        return SimpleNamespace(stdout=json.dumps(response))
+        return SimpleNamespace(stdout="\n".join(events + [json.dumps(response)]) + "\n")
     monkeypatch.setattr(collect_jira.subprocess, "run", run)
     assert mien_access(config, {"12": "ES2-12", "13": "ES2-13"}) == (["12"], ["13"], None)
     assert len(calls) == 1
     response["visible"] = ["99"]
+    assert mien_access(config, {"12": "ES2-12", "13": "ES2-13"}) == ([], ["13"], "worker")
+    events.clear()
     with pytest.raises(RuntimeError, match="did not return a valid receipt"):
         mien_access(config, {"12": "ES2-12", "13": "ES2-13"})
+
+
+def test_mien_child_timeout_preserves_confirmed_denials_only(monkeypatch):
+    config = {"mien_executable": "/fixed/mien", "mien_profile": "cryptolab",
+              "tenant": TENANT, "project": "ES2", "connection": CONNECTION}
+    def run(argv, **kwargs):
+        raise subprocess.TimeoutExpired(
+            argv, 180, output=b'{"denied":"12"}\n{"denied":"13"}',
+        )
+    monkeypatch.setattr(collect_jira.subprocess, "run", run)
+    assert mien_access(config, {"12": "ES2-12", "13": "ES2-13"}) == ([], ["12"], "worker")
 
 
 def test_jira_revocation_persists_without_refreshing_stale_acl_after_unknown_error(tmp_path, monkeypatch):
