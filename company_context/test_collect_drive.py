@@ -61,3 +61,240 @@ def test_native_text_runs_include_nested_tabs_tables_and_notes():
     value = [{"documentTab": {"body": {"content": [{"textRun": {"content": "First"}}]}}, "childTabs": [{"textRun": {"content": "Second"}}]}, {"notesPage": {"table": [{"textRun": {"content": "Notes"}}]}}]
     assert text_runs(value) == "FirstSecondNotes"
     assert extract(b"original\ntext", "text/plain")[0] == "original\ntext"
+
+
+def test_capture_handles_malformed_pdf_text_and_only_metadata_404(tmp_path):
+    class Recovery(API):
+        def scopes(self): return ["user"]
+        def page(self, scope, cursor):
+            return {"files": [{"id": identity, "mimeType": "text/plain"} for identity in
+                              ("pdf", "missing", "shortcut", "media", "vanished")]}
+        def metadata(self, identity):
+            if identity in ("missing", "target") or (identity == "vanished" and identity in self.contents):
+                raise RuntimeError("drive_http_404")
+            item = super().metadata(identity)
+            if identity == "shortcut":
+                return {**item, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "target"}}
+            if identity == "pdf":
+                return {**item, "mimeType": "application/pdf"}
+            return item
+        def content(self, item):
+            if item["id"] == "media":
+                raise RuntimeError("drive_http_404")
+            if item["id"] == "pdf":
+                return "Before \ud800 valid pair \ud83d\ude00 after", "PDF text"
+            return super().content(item)
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    collect(Recovery(), db)
+    assert set(db.execute("SELECT id,status,reason,text FROM files")) == {
+        ("pdf", "ready", None, "Before \ufffd valid pair \U0001f600 after"),
+        ("missing", "omitted", "file_not_accessible", None),
+        ("shortcut", "omitted", "shortcut_target_not_accessible", None),
+        ("media", "failed", "drive_http_404", None),
+        ("vanished", "omitted", "file_not_accessible", None),
+    }
+    assert "malformed surrogate" in db.execute("SELECT coverage FROM files WHERE id='pdf'").fetchone()[0]
+    assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+    db.close()
+
+
+@pytest.mark.parametrize("legacy_audit", [False, True])
+def test_operator_requeues_only_known_failures_without_rewriting_history(tmp_path, legacy_audit):
+    from company_context.collect_drive import retry_capture_errors
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    with db:
+        if legacy_audit:
+            db.execute("CREATE TABLE operator_retries(at TEXT,kind TEXT,id TEXT,cursor TEXT,previous_error TEXT,reason TEXT)")
+            db.execute("INSERT INTO operator_retries VALUES ('before','file','historical','cursor','drive_http_404','old operator action')")
+        db.executemany("INSERT INTO files(id,metadata,status,reason) VALUES (?,'{}',?,?)", [
+            ("pdf", "failed", "UnicodeEncodeError"),
+            ("missing", "failed", "drive_http_404"),
+            ("unknown", "failed", "drive_http_403"),
+            ("ready", "ready", None),
+            ("omitted", "omitted", "unsupported_mime_type"),
+        ])
+    assert retry_capture_errors(db) == 2
+    assert retry_capture_errors(db) == 0
+    assert set(db.execute("SELECT id,status,reason FROM files")) == {
+        ("pdf", "pending", None), ("missing", "pending", None),
+        ("unknown", "failed", "drive_http_403"), ("ready", "ready", None),
+        ("omitted", "omitted", "unsupported_mime_type"),
+    }
+    expected = {
+        ("pdf", "UnicodeEncodeError"), ("missing", "drive_http_404"),
+    }
+    if legacy_audit:
+        expected.add(("historical", "drive_http_404"))
+        assert db.execute("SELECT * FROM operator_retries WHERE id='historical'").fetchone() == (
+            "before", "file", "historical", "cursor", "drive_http_404", "old operator action",
+        )
+    assert set(db.execute("SELECT id,previous_error FROM operator_retries")) == expected
+    db.close()
+
+
+def test_404_with_known_resource_key_remains_pending_operator_recovery(tmp_path):
+    class LinkShared(API):
+        def scopes(self): return ["user"]
+        def page(self, scope, cursor):
+            return {"files": [
+                {"id": "known-key", "mimeType": "text/plain", "resourceKeyPresent": True},
+                {"id": "legacy-link", "mimeType": "text/plain",
+                 "webViewLink": "https://drive.google.com/file/d/legacy-link/view?resourcekey=synthetic"},
+                {"id": "shortcut", "mimeType": "application/vnd.google-apps.shortcut"},
+            ]}
+        def metadata(self, identity):
+            if identity == "shortcut":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "target", "targetResourceKeyPresent": True}}
+            raise RuntimeError("drive_http_404")
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    collect(LinkShared(), db)
+    assert set(db.execute("SELECT id,status,reason FROM files")) == {
+        (identity, "failed", "drive_http_404") for identity in ("known-key", "legacy-link", "shortcut")
+    }
+    assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+    db.close()
+
+
+def test_google_metadata_reports_presence_without_retaining_raw_resource_keys(monkeypatch):
+    from company_context.collect_drive import Drive
+
+    def item():
+        return {"id": "link", "resourceKey": "synthetic-file-key",
+                "shortcutDetails": {"targetId": "target", "targetResourceKey": "synthetic-target-key"}}
+
+    def read(path, **params):
+        assert "resourceKey" in params["fields"]
+        assert "targetResourceKey" in params["fields"]
+        return {"files": [item()]} if path == "files" else item()
+
+    api = Drive.__new__(Drive)
+    monkeypatch.setattr(api, "json", read)
+    expected = {"id": "link", "resourceKeyPresent": True,
+                "shortcutDetails": {"targetId": "target", "targetResourceKeyPresent": True}}
+    assert api.page("user", "")["files"] == [expected]
+    assert api.metadata("link") == expected
+
+
+def test_failed_reads_preserve_known_resource_keys_across_retries(tmp_path):
+    class KeyHistory(API):
+        def scopes(self): return ["user"]
+        def page(self, scope, cursor):
+            return {"files": [
+                {"id": "file", "mimeType": "text/plain"},
+                {"id": "shortcut", "mimeType": "application/vnd.google-apps.shortcut",
+                 "shortcutDetails": {"targetId": "target", "targetResourceKeyPresent": True}},
+            ]}
+        def metadata(self, identity):
+            if identity == "file" and identity not in self.contents:
+                return {**super().metadata(identity), "resourceKeyPresent": True}
+            if identity == "shortcut":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "target"}}
+            raise RuntimeError("drive_http_404")
+
+    from company_context.collect_drive import retry_capture_errors
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    api = KeyHistory()
+    for _ in range(2):
+        collect(api, db)
+        assert set(db.execute("SELECT id,status,reason FROM files")) == {
+            (identity, "failed", "drive_http_404") for identity in ("file", "shortcut")
+        }
+        assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+        assert retry_capture_errors(db) == 2
+    db.close()
+
+
+def test_resource_key_values_are_removed_from_new_provider_links(monkeypatch):
+    from company_context.collect_drive import Drive
+
+    api = Drive.__new__(Drive)
+    link = "HTTPS://drive.google.com/file/d/id/view?foo=a%20b&resourcE%4Bey=opaque&foo=c#"
+    monkeypatch.setattr(api, "json", lambda *a, **kw: {"id": "id", "webViewLink": link})
+    assert api.metadata("id") == {
+        "id": "id", "resourceKeyPresent": True,
+        "webViewLink": "HTTPS://drive.google.com/file/d/id/view?foo=a%20b&foo=c#",
+    }
+
+
+@pytest.mark.parametrize("state", ["new", "pending", "omitted"])
+def test_shortcut_key_evidence_is_carried_to_the_queued_target(tmp_path, state):
+    target = "a-target" if state == "omitted" else "target"
+
+    class Shortcut(API):
+        target_reads = 0
+
+        def scopes(self): return ["user"]
+        def page(self, scope, cursor):
+            files = [{"id": "shortcut", "mimeType": "application/vnd.google-apps.shortcut"}]
+            if state != "new":
+                files.append({"id": target, "mimeType": "text/plain"})
+            return {"files": files}
+
+        def metadata(self, identity):
+            if identity == "shortcut":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": target, "targetResourceKeyPresent": True}}
+            self.target_reads += 1
+            if self.target_reads != (2 if state == "omitted" else 1):
+                raise RuntimeError("drive_http_404")
+            return super().metadata(identity)
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    collect(Shortcut(), db)
+    assert set(db.execute("SELECT id,status,reason FROM files")) == {
+        ("shortcut", "omitted", "shortcut_target_queued"),
+        (target, "failed", "drive_http_404"),
+    }
+    assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+    db.close()
+
+
+@pytest.mark.parametrize("keyed_scope", ["user", "shared"])
+def test_duplicate_inventory_retains_file_and_shortcut_key_evidence(tmp_path, keyed_scope):
+    class Duplicate(API):
+        def page(self, scope, cursor):
+            details = {"targetId": "target"}
+            plain = {"id": "file", "mimeType": "text/plain"}
+            if scope == keyed_scope:
+                plain["resourceKeyPresent"] = True
+                details["targetResourceKeyPresent"] = True
+            return {"files": [plain, {"id": "shortcut", "mimeType": "application/vnd.google-apps.shortcut",
+                                      "shortcutDetails": details}]}
+
+        def metadata(self, identity):
+            if identity == "shortcut":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "target"}}
+            raise RuntimeError("drive_http_404")
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    assert collect(Duplicate(), db)["states"] == {"failed": 2}
+    assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+    db.close()
+
+
+def test_resumed_listing_with_key_revisits_previously_missing_target(tmp_path):
+    class Resumed(API):
+        def scopes(self): return ["shared"]
+        def page(self, scope, cursor):
+            return {"files": [{"id": "a", "mimeType": "text/plain", "resourceKeyPresent": True},
+                              {"id": "b", "mimeType": "application/vnd.google-apps.shortcut"}]}
+        def metadata(self, identity):
+            if identity == "b":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": "a"}}
+            return super().metadata(identity)
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    with db:
+        db.execute("""INSERT INTO files(id,metadata,status,reason)
+                      VALUES ('a','{"id":"a"}','omitted','file_not_accessible')""")
+    collect(Resumed(), db)
+    assert db.execute("SELECT status,text FROM files WHERE id='a'").fetchone() == ("ready", "Original a")
+    db.close()

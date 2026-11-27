@@ -6,16 +6,18 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import time
 import subprocess
 import sys
+from urllib.parse import unquote_plus, urlsplit
 
 from company_context.collect_slack import SECRET
 from company_context.context import digest
 
 
-FIELDS = "id,name,mimeType,version,modifiedTime,createdTime,webViewLink,trashed,owners(emailAddress),capabilities(canDownload),shortcutDetails(targetId,targetMimeType),size"
+FIELDS = "id,name,mimeType,version,modifiedTime,createdTime,webViewLink,trashed,owners(emailAddress),capabilities(canDownload),shortcutDetails(targetId,targetMimeType,targetResourceKey),resourceKey,size"
 MAX_BYTES = 50_000_000
 
 
@@ -32,6 +34,25 @@ def text_runs(value):
     return ""
 
 
+def is_resource_key_parameter(field):
+    return unquote_plus(field.partition("=")[0]).lower() == "resourcekey"
+
+
+def note_resource_keys(item):
+    if item.pop("resourceKey", None):
+        item["resourceKeyPresent"] = True
+    shortcut = item.get("shortcutDetails", {})
+    if shortcut.pop("targetResourceKey", None):
+        shortcut["targetResourceKeyPresent"] = True
+    if link := item.get("webViewLink"):
+        before_fragment, fragment_separator, fragment = link.partition("#")
+        prefix, _, query = before_fragment.partition("?")
+        parameters = query.split("&")
+        safe = [field for field in parameters if not is_resource_key_parameter(field)]
+        if len(safe) != len(parameters):
+            item["resourceKeyPresent"] = True
+            item["webViewLink"] = prefix + ("?" + "&".join(safe) if safe else "") + fragment_separator + fragment
+    return item
 
 
 class Drive:
@@ -102,10 +123,13 @@ class Drive:
         params = {"corpora": "user" if scope == "user" else "drive", "q": "trashed = false", "pageSize": 1000, "pageToken": cursor, "includeItemsFromAllDrives": "true", "supportsAllDrives": "true", "fields": "nextPageToken,incompleteSearch,files(" + FIELDS + ")"}
         if scope != "user":
             params["driveId"] = scope
-        return self.json("files", **params)
+        page = self.json("files", **params)
+        for item in page.get("files", []):
+            note_resource_keys(item)
+        return page
 
     def metadata(self, identity):
-        return self.json("files/" + identity, fields=FIELDS, supportsAllDrives="true")
+        return note_resource_keys(self.json("files/" + identity, fields=FIELDS, supportsAllDrives="true"))
 
     def content(self, item):
         identity, mime = item["id"], item["mimeType"]
@@ -143,6 +167,7 @@ def open_store(path, identity):
     db = sqlite3.connect(path); path.chmod(0o600)
     db.executescript("""
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS keyed_resources(id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS scopes(id TEXT PRIMARY KEY,cursor TEXT NOT NULL DEFAULT '',done INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY,metadata TEXT NOT NULL,text TEXT,coverage TEXT,sha256 TEXT,collected_at TEXT,status TEXT NOT NULL DEFAULT 'pending',reason TEXT);
     """)
@@ -156,6 +181,53 @@ def open_store(path, identity):
 
 def status(db):
     return {"files": db.execute("SELECT count(*) FROM files").fetchone()[0], "states": dict(db.execute("SELECT status,count(*) FROM files GROUP BY status")), "pending_scopes": db.execute("SELECT count(*) FROM scopes WHERE done=0").fetchone()[0], "model_calls": 0, "index_published": False}
+
+
+def retry_capture_errors(db):
+    with db:
+        db.execute("CREATE TABLE IF NOT EXISTS operator_retries(at TEXT,id TEXT,previous_error TEXT)")
+        selected = list(db.execute("SELECT id,reason FROM files WHERE status='failed' AND reason IN ('UnicodeEncodeError','drive_http_404')"))
+        at = datetime.now(timezone.utc).isoformat()
+        db.executemany("INSERT INTO operator_retries(at,id,previous_error) VALUES (?,?,?)", [(at, identity, error) for identity, error in selected])
+        db.executemany("UPDATE files SET status='pending',reason=NULL WHERE id=?", [(identity,) for identity, _ in selected])
+    return len(selected)
+
+
+def has_resource_key(item):
+    # Older captures may have the key only in the provider's link.
+    return item.get("resourceKeyPresent") or any(
+        is_resource_key_parameter(field) for field in urlsplit(item.get("webViewLink") or "").query.split("&")
+    )
+
+
+def remember_keys(db, item):
+    shortcut = item.get("shortcutDetails", {})
+    identities = []
+    if has_resource_key(item):
+        identities.append(item["id"])
+    if shortcut.get("targetResourceKeyPresent") and shortcut.get("targetId"):
+        identities.append(shortcut["targetId"])
+    for identity in identities:
+        db.execute("INSERT OR IGNORE INTO keyed_resources VALUES (?)", (identity,))
+        db.execute("""UPDATE files SET status='pending', reason=NULL
+                      WHERE id=? AND status='omitted' AND reason='file_not_accessible'""", (identity,))
+
+
+def known_key(db, identity):
+    if db.execute("SELECT 1 FROM keyed_resources WHERE id=?", (identity,)).fetchone():
+        return True
+    # Older captures recorded evidence on the file itself.
+    row = db.execute("SELECT metadata FROM files WHERE id=?", (identity,)).fetchone()
+    return bool(row and has_resource_key(json.loads(row[0])))
+
+
+def capture_metadata(api, identity, omission="file_not_accessible", *, resource_key_present=False):
+    try:
+        return api.metadata(identity)
+    except RuntimeError as error:
+        if str(error) == "drive_http_404" and not resource_key_present:
+            raise Omitted(omission) from None
+        raise
 
 
 def collect(api, db):
@@ -176,27 +248,61 @@ def collect(api, db):
                 for item in page.get("files", []):
                     secret = bool(SECRET.search(json.dumps(item)))
                     safe = {"id": item["id"], "mimeType": item["mimeType"]} if secret else item
+                    if not secret:
+                        remember_keys(db, item)
                     db.execute("INSERT OR IGNORE INTO files(id,metadata,status,reason) VALUES (?,?,?,?)", (item["id"], json.dumps(safe, ensure_ascii=False), "omitted" if secret else "pending", "credential_pattern" if secret else None))
                 db.execute("UPDATE scopes SET cursor=?,done=? WHERE id=?", (following, int(not following), scope))
             print(json.dumps(status(db)), flush=True)
             if not following: break
             cursor = following
-    while pending := db.execute("SELECT id FROM files WHERE status='pending' ORDER BY id LIMIT 1").fetchone():
-        identity = pending[0]
+    while pending := db.execute("SELECT id,metadata FROM files WHERE status='pending' ORDER BY id LIMIT 1").fetchone():
+        identity, raw_metadata = pending
         try:
-            item = api.metadata(identity)
+            saved = json.loads(raw_metadata)
+            with db:
+                remember_keys(db, saved)
+            saved_key = known_key(db, identity)
+            item = capture_metadata(api, identity, resource_key_present=saved_key)
             if item.get("trashed"): raise Omitted("trashed")
             if SECRET.search(json.dumps(item)): raise Omitted("credential_pattern")
+            if saved_key:
+                item["resourceKeyPresent"] = True
+            shortcut = item.get("shortcutDetails", {})
+            saved_shortcut = saved.get("shortcutDetails", {})
+            target_id = shortcut.get("targetId")
+            if target_id and target_id == saved_shortcut.get("targetId") and saved_shortcut.get("targetResourceKeyPresent"):
+                shortcut["targetResourceKeyPresent"] = True
+            # Preserve observed key evidence even if a later content or metadata read fails.
+            if has_resource_key(item) or shortcut.get("targetResourceKeyPresent"):
+                with db:
+                    remember_keys(db, item)
+                    db.execute("UPDATE files SET metadata=? WHERE id=?", (json.dumps(item), identity))
             if item["mimeType"] == "application/vnd.google-apps.shortcut":
-                target = api.metadata(item["shortcutDetails"]["targetId"])
+                target_key = known_key(db, shortcut["targetId"])
+                target = capture_metadata(api, shortcut["targetId"], "shortcut_target_not_accessible",
+                                          resource_key_present=target_key)
                 if SECRET.search(json.dumps(target)): raise Omitted("credential_pattern")
-                with db: db.execute("INSERT OR IGNORE INTO files(id,metadata) VALUES (?,?)", (target["id"], json.dumps(target, ensure_ascii=False)))
+                if target_key:
+                    target["resourceKeyPresent"] = True
+                with db:
+                    db.execute("INSERT OR IGNORE INTO files(id,metadata) VALUES (?,?)", (target["id"], json.dumps(target, ensure_ascii=False)))
+                    if has_resource_key(target):
+                        db.execute("""
+                            UPDATE files
+                            SET metadata=json_set(metadata,'$.resourceKeyPresent',json('true')),
+                                status=CASE WHEN status='omitted' THEN 'pending' ELSE status END,
+                                reason=CASE WHEN status='omitted' THEN NULL ELSE reason END
+                            WHERE id=? AND (status IN ('pending','failed') OR (status='omitted' AND reason='file_not_accessible'))
+                        """, (target["id"],))
                 raise Omitted("shortcut_target_queued")
             text, coverage = api.content(item)
+            if re.search(r"[\ud800-\udfff]", text):
+                text = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+                coverage += "; Unicode surrogate pairs normalized and malformed surrogates replaced"
             if not text.strip(): raise Omitted("no_text_layer_or_empty")
             if len(text) > 2_000_000: raise Omitted("text_size_limit")
             if SECRET.search(text) or SECRET.search(json.dumps(item)): raise Omitted("credential_pattern")
-            after = api.metadata(identity)
+            after = capture_metadata(api, identity, resource_key_present=saved_key or has_resource_key(item))
             if (item.get("version"), item.get("modifiedTime")) != (after.get("version"), after.get("modifiedTime")) or after.get("trashed"):
                 raise RuntimeError("source_changed_during_capture")
             with db:
@@ -217,6 +323,7 @@ def main():
     parser.add_argument("--credentials-file", required=True)
     parser.add_argument("--email", required=True)
     parser.add_argument("--database", type=Path, required=True)
+    parser.add_argument("--retry-capture-errors", action="store_true")
     args = parser.parse_args()
     args.database.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with args.database.with_suffix(".lock").open("a") as lock:
@@ -224,6 +331,8 @@ def main():
         api = Drive(args.credentials_file, args.email)
         db = open_store(args.database, api.identity)
         try:
+            if args.retry_capture_errors:
+                print(json.dumps({"capture_reads_requeued": retry_capture_errors(db)}), flush=True)
             result = collect(api, db)
             if result["states"].get("failed", 0): raise SystemExit(1)
         finally:
