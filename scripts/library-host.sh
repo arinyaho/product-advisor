@@ -2,9 +2,10 @@
 # Activate a staged release on the existing host; accept only after real MCP checks.
 set -euo pipefail
 ACTION=${1:?activate or rollback}
-VERSION=${2:?release version}
-[[ "$VERSION" =~ ^three-books-[a-f0-9]{16}$ ]] || exit 2
-STAGE="$PWD/staging/$VERSION"
+DEPLOYMENT=${2:?deployment printed by deploy-library.py}
+[[ "$DEPLOYMENT" =~ ^three-books-[a-f0-9]{16}-[a-f0-9]{12}$ ]] || exit 2
+VERSION=${DEPLOYMENT%-*}
+STAGE="$PWD/staging/$DEPLOYMENT"
 exec > >(tee -a "$STAGE/activation.log") 2>&1
 DOCKER=${DOCKER:-sudo /usr/local/bin/docker}
 compose() { $DOCKER compose --env-file deploy.env "$@"; }
@@ -44,14 +45,14 @@ if not ready.exists():ready=pathlib.Path(sys.argv[4])/'data'/'libraries'/sys.arg
 retrieval=json.loads(ready.read_text())['retrieval_version']
 assert len(evaluation['rows'])==30 and all(row['passed'] and row['retrieval']['retrieval_version']==retrieval for row in evaluation['rows'])
 PY
-test ! -e "$STAGE/accepted.json" || { echo 'This release was already accepted'; exit 1; }
+test ! -e "$STAGE/accepted.json" || { echo 'This deployment was already accepted'; exit 1; }
 container=$(compose ps -q product-advisor)
 test -n "$container"
-BACKUP="$PWD/backups/$VERSION-$(date -u +%Y%m%dT%H%M%SZ)"
+BACKUP="$PWD/backups/$DEPLOYMENT-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$BACKUP"
 $DOCKER inspect --format '{{.Image}}' "$container" > "$BACKUP/image-id"
 $DOCKER inspect --format '{{.Config.Image}}' "$container" > "$BACKUP/image-tag"
-$DOCKER tag "$(cat "$BACKUP/image-id")" "product-advisor-rollback:$VERSION"
+$DOCKER tag "$(cat "$BACKUP/image-id")" "product-advisor-rollback:$DEPLOYMENT"
 cp -R mcp "$BACKUP/mcp"
 cp docker-compose.yml "$BACKUP/"
 if [ -e data/library-active.json ]; then cp data/library-active.json "$BACKUP/"; fi
@@ -64,7 +65,7 @@ if [ ! -d "data/libraries/$VERSION" ]; then
 fi
 cp -R "$STAGE/code/mcp/." mcp/
 cp "$STAGE/code/docker-compose.yml" docker-compose.yml
-compose build product-advisor
+compose build --build-arg "BOOK_LIBRARY_DEPLOYMENT=$DEPLOYMENT" product-advisor
 printf '{"version":"%s"}\n' "$VERSION" > data/library-active.json.tmp
 mv data/library-active.json.tmp data/library-active.json
 rm -f "$STAGE/rejected.json"
@@ -75,20 +76,20 @@ for ((i=0;i<120;i++)); do
     sleep 2
 done
 [ "$ready" = true ] || { echo 'Library startup did not become ready'; exit 1; }
-echo "WAITING_FOR_REAL_MCP_ACCEPTANCE: $VERSION"
+echo "WAITING_FOR_REAL_MCP_ACCEPTANCE: $DEPLOYMENT"
 for ((i=0;i<150;i++)); do
     test ! -e "$STAGE/rejected.json" || { echo 'MCP acceptance failed'; exit 1; }
     if [ -e "$STAGE/accepted.json" ]; then
-        python3 - "$STAGE" <<'PY'
+        python3 - "$STAGE" "$DEPLOYMENT" <<'PY'
 import json,pathlib,sys
 stage=pathlib.Path(sys.argv[1])
 accepted=json.loads((stage/'accepted.json').read_text())
 evaluation=json.loads((stage/'evaluation-passed.json').read_text())
-assert accepted['status']=='accepted' and accepted['version']==evaluation['version']
+assert accepted['status']=='accepted' and accepted['version']==evaluation['version'] and accepted['deployment']==sys.argv[2]
 assert accepted['fixture_sha256']==evaluation['fixture_sha256']
 PY
         success=true
-        echo "DEPLOYMENT_ACCEPTED: $VERSION"
+        echo "DEPLOYMENT_ACCEPTED: $DEPLOYMENT"
         exit
     fi
     sleep 2
