@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -74,6 +75,24 @@ def description_text(node):
         return node.get("text", "")
     if kind == "hardBreak":
         return "\n"
+    attrs = node.get("attrs") or {}
+    if kind == "mention":
+        return attrs.get("text") or "[mention]"
+    if kind == "emoji":
+        return attrs.get("text") or attrs.get("shortName") or "[emoji]"
+    if kind in ("inlineCard", "blockCard", "embedCard"):
+        url = attrs.get("url") or ""
+        label = "[smart link]"
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            parsed = None
+        if (parsed and parsed.scheme == "https" and parsed.hostname and parsed.username is None
+                and parsed.password is None and not parsed.query and not parsed.fragment):
+            label = url
+        return label if kind == "inlineCard" else label + "\n"
+    if kind == "media":
+        return "[media]"
     text = "".join(description_text(child) for child in node.get("content", []))
     return text + "\n" if kind in BLOCK_NODES else text
 
@@ -127,7 +146,7 @@ def issue_record(issue, tenant, connection, project, collected_at):
         "updated_at": issue_timestamp(fields["updated"]),
         "collected_at": collected_at,
         "record_kind": "source",
-        "coverage": "Issue summary, description, type, status, parent and issue links. Comments, attachments, changelog and linked issue bodies excluded.",
+        "coverage": "Issue summary, plain-text description, type, status, parent and issue links. Media and smart links without a plain HTTPS URL use placeholders. Other rich formatting is omitted. Comments, attachments, changelog and linked issue bodies excluded.",
         "provider_scope": {"provider": "jira", "connection": connection, "resource_id": identity},
     }
 

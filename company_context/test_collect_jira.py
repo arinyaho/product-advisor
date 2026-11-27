@@ -152,3 +152,27 @@ def test_capture_limits_consecutive_empty_pages(monkeypatch):
     with jira(monkeypatch, handler) as client, pytest.raises(ValueError, match="page limit exceeded"):
         capture(Jira(TENANT, client), "ES2", SINCE, 2)
     assert requests == [None, "1", "2"]
+
+
+def test_capture_preserves_inline_description_content(monkeypatch):
+    item = issue()
+    item["fields"]["description"] = {"type": "doc", "content": [
+        {"type": "paragraph", "content": [
+            {"type": "mention", "attrs": {"text": "@Reader", "id": "not-visible"}},
+            {"type": "text", "text": " reviewed "},
+            {"type": "inlineCard", "attrs": {"url": "https://example.net/design"}},
+            {"type": "emoji", "attrs": {"shortName": ":thumbsup:"}},
+        ]},
+        {"type": "blockCard", "attrs": {"url": "https://example.net/file?resourcekey=private-value"}},
+        {"type": "inlineCard", "attrs": {"url": "https://[invalid"}},
+        {"type": "mediaSingle", "content": [{"type": "media", "attrs": {"id": "asset-id"}}]},
+    ]}
+    def page(req):
+        return httpx.Response(200, json={"issues": [item], "isLast": True})
+    with jira(monkeypatch, page) as client:
+        result = capture(Jira(TENANT, client), "ES2", SINCE, 1)
+    record = result["records"][0]
+    assert "@Reader reviewed https://example.net/design:thumbsup:" in record["text"]
+    assert record["text"].count("[smart link]") == 2 and "[media]" in record["text"]
+    assert "private-value" not in record["text"] and "asset-id" not in record["text"]
+    assert "placeholders" in record["coverage"]
