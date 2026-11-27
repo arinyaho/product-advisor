@@ -1,8 +1,10 @@
 """Export completed document captures and revalidate their provider access."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import fcntl
+import hashlib
 import json
+import os
 import re
 from pathlib import Path
 import sqlite3
@@ -10,9 +12,10 @@ import sqlite3
 import httpx
 
 from company_context.collect_drive import Drive
+from company_context.collect_jira import OMITTED_FIELDS as JIRA_OMITTED_FIELDS, jira_cutoff, mien_access
 from company_context.collect_notion import Notion
 from company_context.collect_slack import SECRET
-from company_context.context import digest
+from company_context.context import Corpus, JIRA_CONNECTION, JIRA_PROJECT, JIRA_TENANT, digest, jira_link, timestamp
 
 
 class IncompleteCapture(ValueError):
@@ -121,6 +124,8 @@ def notion_records(db, settings, finished):
 
 
 def export_capture(provider, settings, principal):
+    if provider == "jira":
+        return export_jira_capture(settings, principal)
     path = Path(settings["database"])
     if not path.exists(): raise IncompleteCapture("capture_not_started")
     with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
@@ -152,7 +157,78 @@ def export_capture(provider, settings, principal):
         return {"principal": principal, "records": rows, "collection": {"provider": provider, "completed_at": finished, **coverage}}
 
 
+def jira_scope(settings, principal):
+    tenant, project, connection = (settings[key] for key in ("tenant", "project", "connection"))
+    if (
+        settings.get("principal") != principal or not JIRA_TENANT.fullmatch(tenant)
+        or not JIRA_PROJECT.fullmatch(project) or not JIRA_CONNECTION.fullmatch(connection)
+    ):
+        raise ValueError("Jira tenant, project or reader scope differs")
+    return tenant, project, connection
+
+
+def jira_resources(rows, tenant, project, connection):
+    resources = {}
+    for row in rows:
+        scope = row["provider_scope"]
+        identity = scope["resource_id"]
+        link = jira_link(row["url"])
+        if not link or link[0] != tenant or not link[1].startswith(project + "-") or scope["connection"] != connection:
+            raise ValueError("Jira record is outside the pinned capture scope")
+        if resources.setdefault(identity, link[1]) != link[1]:
+            raise ValueError("Jira issue ID maps to conflicting keys")
+    return resources
+
+
+def export_jira_capture(settings, principal):
+    tenant, project, connection = jira_scope(settings, principal)
+    since = date.fromisoformat(settings["since"])
+    cutoff = jira_cutoff(since, settings["jira_timezone"])
+    path = Path(settings["capture_file"])
+    try:
+        with path.open("rb") as stream:
+            info = os.fstat(stream.fileno())
+            if info.st_mode & 0o077 or info.st_uid != os.getuid():
+                raise ValueError("Jira capture file must be private")
+            raw = stream.read()
+    except FileNotFoundError:
+        raise IncompleteCapture("capture_not_started") from None
+    capture_id = hashlib.sha256(raw).hexdigest()
+    if capture_id != settings.get("capture_sha256"):
+        raise ValueError("Jira capture does not match its configured digest")
+    capture = json.loads(raw)
+    meta, rows = capture["collection"], capture["records"]
+    if any(meta.get(key) != expected for key, expected in {
+        "provider": "jira", "capture_schema": 1, "tenant": tenant, "project": project,
+        "connection": connection, "since": since.isoformat(), "jira_timezone": settings["jira_timezone"],
+        "omitted_fields": list(JIRA_OMITTED_FIELDS),
+    }.items()):
+        raise ValueError("Jira capture metadata differs from the pinned scope")
+    timestamp(meta["completed_at"])
+    omissions = meta["omissions"]
+    if (
+        set(omissions) != {"credential_pattern", "source_size_limit"}
+        or any(type(count) is not int or count < 0 for count in omissions.values())
+        or type(meta["discovered_issues"]) is not int
+        or not 0 <= meta["discovered_issues"] <= 100
+        or len(rows) + sum(omissions.values()) != meta["discovered_issues"]
+    ):
+        raise ValueError("Jira capture completeness differs")
+    snapshot = {"principal": principal, "records": rows, "collection": {**meta, "capture_id": capture_id}}
+    Corpus(snapshot)
+    if any(row.get("provider_scope", {}).get("provider") != "jira" or SECRET.search(row["text"]) for row in rows):
+        raise ValueError("Jira capture includes non-Jira or withheld records")
+    if any(row["updated_at"] is None or timestamp(row["updated_at"]) < cutoff for row in rows):
+        raise ValueError("Jira issue was updated before the capture cutoff")
+    if len(jira_resources(rows, tenant, project, connection)) != len(rows):
+        raise ValueError("Jira capture contains repeated issue identities")
+    return snapshot
+
+
 def resource_identity(row, provider):
+    if provider == "jira":
+        link = jira_link(row["url"])
+        return "/".join(link) if link else None
     scope = row.get("provider_scope", {})
     if scope.get("provider") == provider: return scope["resource_id"].replace("-", "") if provider == "notion" else scope["resource_id"]
     from urllib.parse import parse_qs, urlsplit
@@ -187,7 +263,8 @@ def refresh_document_access(root, settings, snapshots):
                 if previous:
                     previous["resource_ids"] = [v for v in previous["resource_ids"] if identity is not None and v != identity]
                     write_json(path, result)
-            scopes = [r["provider_scope"] for snapshot in snapshots for r in snapshot.get("records", []) if r.get("provider_scope", {}).get("provider") == provider]
+            rows = [r for snapshot in snapshots for r in snapshot.get("records", []) if r.get("provider_scope", {}).get("provider") == provider]
+            scopes = [r["provider_scope"] for r in rows]
             required = {identity for scope in scopes for identity in [scope["resource_id"], *scope.get("dependencies", [])]}
             if not required: continue
             checked = datetime.now(timezone.utc).isoformat()
@@ -246,6 +323,16 @@ def refresh_document_access(root, settings, snapshots):
                             if str(error) not in ("drive_http_403", "drive_http_404"): raise
                             revoke(identity)
                 finally: api.client.close()
+            elif provider == "jira":
+                tenant, project, connection = jira_scope(config, settings["principal"])
+                visible, denied, failure = mien_access(config, jira_resources(rows, tenant, project, connection))
+                for identity in denied:
+                    revoke(identity)
+                if failure == "identity":
+                    revoke()
+                    raise ValueError("Jira reader identity changed")
+                if failure:
+                    raise RuntimeError("Jira ACL refresh failed: " + failure)
             else: raise ValueError("Unknown document provider")
             result["providers"][provider] = {"connection": connection, "checked_at": checked, "resource_ids": sorted(visible)}
             write_json(path, result)
