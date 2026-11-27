@@ -238,10 +238,16 @@ def test_strict_chat_only_sends_required_supported_generation_parameters(monkeyp
 def test_haiku_graph_extraction_reserves_output_for_evidence(monkeypatch, tmp_path):
     value = config()
     value["chat_model"] = "anthropic/claude-haiku-5.5"
+    prices = {"prompt": .5, "completion": 2.5, "request": 0}
+    value["cost_ceiling"] = {"chat": {
+        "model": value["chat_model"], "context_tokens": 1000000,
+        "max_price": prices, "cache_multiplier": 2,
+    }}
     receipt = tmp_path / "requests.jsonl"
     async def post(*args, **kwargs):
         payload = kwargs["json"]
         assert payload["max_tokens"] == 8192
+        assert payload["provider"] == {"max_price": prices, "allow_fallbacks": True, "require_parameters": True}
         done = payload.get("reasoning") == {"enabled": False}
         return httpx.Response(200, request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"), json={
             "choices": [{"finish_reason": "stop" if done else "length", "message": {"content": "Extracted evidence"}}],
