@@ -206,8 +206,8 @@ def main():
     if args.command == "access":
         refresh_document_access(root, settings, [])
         return
-    if settings.get("index_parallelism", 1) > 1:
-        subprocess.run(["systemctl", "--user", "start", "--no-block", "company-context-sync.service"], check=True)
+    if settings.get("index_parallelism", 1) > 1 and (service := settings.get("combined_sync_service")):
+        subprocess.run(["systemctl", "--user", "start", "--no-block", "--", service], check=True)
         return
     with (root / "sync.lock").open("a") as lock:
         try:
