@@ -136,6 +136,13 @@ def test_mien_child_timeout_preserves_confirmed_denials_only(monkeypatch):
     assert mien_access(config, {"12": "ES2-12", "13": "ES2-13"}) == ([], ["12"], "worker")
 
 
+def test_mien_missing_final_receipt_preserves_confirmed_denials(monkeypatch):
+    config = {"mien_executable": "/fixed/mien", "mien_profile": "cryptolab",
+              "tenant": TENANT, "project": "ES2", "connection": CONNECTION}
+    monkeypatch.setattr(collect_jira.subprocess, "run", lambda *_, **kw: SimpleNamespace(stdout='{"denied":"12"}\n'))
+    assert mien_access(config, {"12": "ES2-12", "13": "ES2-13"}) == ([], ["12"], "worker")
+
+
 def test_jira_revocation_persists_without_refreshing_stale_acl_after_unknown_error(tmp_path, monkeypatch):
     rows = [jira_row("12"), jira_row("13")]
     config = frozen(tmp_path, rows)

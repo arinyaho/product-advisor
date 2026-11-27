@@ -249,18 +249,24 @@ def mien_access(config, issues):
     if isinstance(output, bytes):
         output = output.decode("utf-8", errors="replace")
     lines = output.splitlines(keepends=True)
-    final = lines.pop() if lines and not failed else ""
     observed_denials = []
+    result = None
     try:
-        for line in lines:
+        for index, line in enumerate(lines):
+            event = json.loads(line)
+            if not isinstance(event, dict):
+                raise ValueError("Invalid Jira ACL output")
+            if not failed and index == len(lines) - 1 and set(event) != {"denied"}:
+                result = event
+                break
             if not line.endswith("\n"):
                 raise ValueError("Incomplete Jira denial event")
-            event = json.loads(line)
             identity = event["denied"]
             if set(event) != {"denied"} or not isinstance(identity, str) or identity not in issues or identity in observed_denials:
                 raise ValueError("Invalid Jira denial event")
             observed_denials.append(identity)
-        result = json.loads(final)
+        if result is None:
+            raise ValueError("Missing Jira ACL receipt")
         visible, denied, failure = result["visible"], result["denied"], result["failure"]
         if (
             not isinstance(visible, list) or not isinstance(denied, list)
