@@ -38,8 +38,8 @@ async def verify(release, output, host=None, fixture_path=None):
         async with streamable_http_client(config["url"], http_client=http) as streams:
             async with ClientSession(*streams) as session:
                 initialization = await session.initialize()
-                assert initialization.serverInfo.name == "textbooks", "Expected textbooks MCP server"
-                report["server_name"] = initialization.serverInfo.name
+                assert initialization.server_info.name == "textbooks", "Expected textbooks MCP server"
+                report["server_name"] = initialization.server_info.name
                 async def call(name, arguments):
                     result = await session.call_tool(name, arguments, read_timeout_seconds=120)
                     assert not result.is_error, name + " returned a tool error"
