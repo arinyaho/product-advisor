@@ -233,3 +233,20 @@ def test_strict_chat_only_sends_required_supported_generation_parameters(monkeyp
     assert asyncio.run(Models(value).extract("synthetic")) == "OK"
     assert set(observed[0]) == {"model", "messages", "max_tokens", "provider"}
     assert observed[0]["provider"]["require_parameters"] is True
+
+
+def test_haiku_graph_extraction_reserves_output_for_evidence(monkeypatch, tmp_path):
+    value = config()
+    value["chat_model"] = "anthropic/claude-haiku-5.5"
+    receipt = tmp_path / "requests.jsonl"
+    async def post(*args, **kwargs):
+        payload = kwargs["json"]
+        assert payload["max_tokens"] == 8192
+        done = payload.get("reasoning") == {"enabled": False}
+        return httpx.Response(200, request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"), json={
+            "choices": [{"finish_reason": "stop" if done else "length", "message": {"content": "Extracted evidence"}}],
+            "usage": {"cost": 0.001},
+        })
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    assert asyncio.run(Models(value, receipts=receipt).extract("synthetic")) == "Extracted evidence"
+    assert json.loads(receipt.read_text().splitlines()[-1])["status"] == "completed"
