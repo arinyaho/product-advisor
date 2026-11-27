@@ -204,9 +204,42 @@ def test_resource_key_values_are_removed_from_new_provider_links(monkeypatch):
     from company_context.collect_drive import Drive
 
     api = Drive.__new__(Drive)
-    link = "https://drive.google.com/file/d/id/view?foo=a%20b&resourcE%4Bey=opaque&foo=c#section"
+    link = "HTTPS://drive.google.com/file/d/id/view?foo=a%20b&resourcE%4Bey=opaque&foo=c#"
     monkeypatch.setattr(api, "json", lambda *a, **kw: {"id": "id", "webViewLink": link})
     assert api.metadata("id") == {
         "id": "id", "resourceKeyPresent": True,
-        "webViewLink": "https://drive.google.com/file/d/id/view?foo=a%20b&foo=c#section",
+        "webViewLink": "HTTPS://drive.google.com/file/d/id/view?foo=a%20b&foo=c#",
     }
+
+
+@pytest.mark.parametrize("state", ["new", "pending", "omitted"])
+def test_shortcut_key_evidence_is_carried_to_the_queued_target(tmp_path, state):
+    target = "a-target" if state == "omitted" else "target"
+
+    class Shortcut(API):
+        target_reads = 0
+
+        def scopes(self): return ["user"]
+        def page(self, scope, cursor):
+            files = [{"id": "shortcut", "mimeType": "application/vnd.google-apps.shortcut"}]
+            if state != "new":
+                files.append({"id": target, "mimeType": "text/plain"})
+            return {"files": files}
+
+        def metadata(self, identity):
+            if identity == "shortcut":
+                return {"id": identity, "mimeType": "application/vnd.google-apps.shortcut",
+                        "shortcutDetails": {"targetId": target, "targetResourceKeyPresent": True}}
+            self.target_reads += 1
+            if self.target_reads != (2 if state == "omitted" else 1):
+                raise RuntimeError("drive_http_404")
+            return super().metadata(identity)
+
+    db = open_store(tmp_path / "drive.sqlite", API.identity)
+    collect(Shortcut(), db)
+    assert set(db.execute("SELECT id,status,reason FROM files")) == {
+        ("shortcut", "omitted", "shortcut_target_queued"),
+        (target, "failed", "drive_http_404"),
+    }
+    assert "finished_at" not in dict(db.execute("SELECT key,value FROM metadata"))
+    db.close()

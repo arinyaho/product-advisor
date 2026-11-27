@@ -45,12 +45,13 @@ def note_resource_keys(item):
     if shortcut.pop("targetResourceKey", None):
         shortcut["targetResourceKeyPresent"] = True
     if link := item.get("webViewLink"):
-        parts = urlsplit(link)
-        parameters = parts.query.split("&")
+        before_fragment, fragment_separator, fragment = link.partition("#")
+        prefix, _, query = before_fragment.partition("?")
+        parameters = query.split("&")
         safe = [field for field in parameters if not is_resource_key_parameter(field)]
         if len(safe) != len(parameters):
             item["resourceKeyPresent"] = True
-            item["webViewLink"] = parts._replace(query="&".join(safe)).geturl()
+            item["webViewLink"] = prefix + ("?" + "&".join(safe) if safe else "") + fragment_separator + fragment
     return item
 
 
@@ -253,7 +254,18 @@ def collect(api, db):
                 target = capture_metadata(api, shortcut["targetId"], "shortcut_target_not_accessible",
                                           resource_key_present=shortcut.get("targetResourceKeyPresent"))
                 if SECRET.search(json.dumps(target)): raise Omitted("credential_pattern")
-                with db: db.execute("INSERT OR IGNORE INTO files(id,metadata) VALUES (?,?)", (target["id"], json.dumps(target, ensure_ascii=False)))
+                if shortcut.get("targetResourceKeyPresent"):
+                    target["resourceKeyPresent"] = True
+                with db:
+                    db.execute("INSERT OR IGNORE INTO files(id,metadata) VALUES (?,?)", (target["id"], json.dumps(target, ensure_ascii=False)))
+                    if has_resource_key(target):
+                        db.execute("""
+                            UPDATE files
+                            SET metadata=json_set(metadata,'$.resourceKeyPresent',json('true')),
+                                status=CASE WHEN status='omitted' THEN 'pending' ELSE status END,
+                                reason=CASE WHEN status='omitted' THEN NULL ELSE reason END
+                            WHERE id=? AND (status IN ('pending','failed') OR (status='omitted' AND reason='file_not_accessible'))
+                        """, (target["id"],))
                 raise Omitted("shortcut_target_queued")
             text, coverage = api.content(item)
             if re.search(r"[\ud800-\udfff]", text):
