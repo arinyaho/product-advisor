@@ -39,7 +39,7 @@ case "$*" in
  *"ps -q"*) echo container ;;
  *"inspect --format {{.Image}}"*) echo sha256:old ;;
  *"inspect --format {{.Config.Image}}"*) echo old-tag ;;
- *"build product-advisor"*) exit 7 ;;
+ *"build --build-arg BOOK_LIBRARY_DEPLOYMENT=three-books-0123456789abcdef-00000000000b product-advisor"*) exit 7 ;;
 esac
 exit 0
 ''')
@@ -75,3 +75,38 @@ def test_runtime_code_change_is_a_new_deployment():
     changed_code = {**inventory, "code/mcp/server.py": {"sha256": "d"}}
     changed_release = {**inventory, "release/catalog.json": {"sha256": "e"}}
     assert deploy.runtime_id(changed_code) != deploy.runtime_id(inventory) == deploy.runtime_id(changed_release)
+
+
+def test_stage_prints_runnable_accept_command_for_selected_root(tmp_path, monkeypatch, capsys):
+    import shlex
+    import sys
+
+    spec = importlib.util.spec_from_file_location("deploy_library", Path(__file__).with_name("deploy-library.py"))
+    deploy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(deploy)
+    ssh = tmp_path / "ssh"
+    ssh.write_text('#!/bin/sh\nshift\nexec sh -c "$1"\n')
+    ssh.chmod(0o700)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    release = tmp_path / "release"
+    release.mkdir()
+    version = "three-books-0123456789abcdef"
+    (release / "manifest.json").write_text(json.dumps({"version": version}))
+    (release / "catalog.json").write_text("{}")
+    (release / "ready.json").write_text(json.dumps({
+        "retrieval_version": "test", "file_sha256": {"catalog.json": deploy.sha(release / "catalog.json")},
+    }))
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps({"cases": [{"id": "a"}]}))
+    evaluation = tmp_path / "report.json"
+    evaluation.write_text(json.dumps({
+        "version": version, "fixture_sha256": deploy.sha(cases), "retrieval_version": "test",
+        "rows": [{"case": "a", "mode": mode, "passed": True} for mode in ("mix", "naive")],
+    }))
+    remote_root = tmp_path / "deploy here"
+    deploy.stage("mock-host", str(remote_root), release, evaluation, cases)
+    argv = shlex.split(capsys.readouterr().out.splitlines()[-1])
+    assert argv[:2] == [sys.executable, str(Path(__file__).with_name("verify-live-library.py").resolve())]
+    assert argv[argv.index("--deploy-dir") + 1] == str(remote_root)
+    deployment = argv[argv.index("--deployment") + 1]
+    assert (remote_root / "staging" / deployment / "verified.json").is_file()

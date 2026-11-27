@@ -686,6 +686,9 @@ def app():
     inner = mcp.streamable_http_app(
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
 
+    identity_file = Path(__file__).with_name("library-deployment")
+    deployment = identity_file.read_bytes().strip() if identity_file.is_file() else b""
+
     async def guarded(scope, receive, send):
         if scope["type"] == "lifespan":
             try:
@@ -702,6 +705,14 @@ def app():
                 await send({"type": "http.response.start", "status": 401,
                             "headers": [(b"content-type", b"text/plain"), (b"www-authenticate", b"Bearer")]})
                 await send({"type": "http.response.body", "body": b"invalid or expired key"})
+                return
+            if deployment:
+                async def send_identified(message):
+                    if message["type"] == "http.response.start":
+                        message = {**message, "headers": [*message.get("headers", []), (b"x-book-library-deployment", deployment)]}
+                    await send(message)
+
+                await inner(scope, receive, send_identified)
                 return
         await inner(scope, receive, send)
 

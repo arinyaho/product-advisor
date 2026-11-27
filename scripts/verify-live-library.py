@@ -20,13 +20,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))
 from book_library import Catalog, atomic_json, words, digest
 
 
-async def verify(release, output, host=None, fixture_path=None, deployment=None):
+DEFAULT_DEPLOY_DIR = "/volume1/docker/product-advisor"
+
+
+async def verify(release, output, host=None, fixture_path=None, deployment=None, deploy_dir=DEFAULT_DEPLOY_DIR):
     root = Path(__file__).resolve().parent.parent
     fixture_path = fixture_path or root / "eval/three_book_cases.json"
     fixture_sha256 = digest(fixture_path.read_bytes())
     catalog = Catalog.load(release)
     version = json.loads((release / "manifest.json").read_text())["version"]
-    assert not host or re.fullmatch(re.escape(version) + "-[a-f0-9]{12}", deployment or ""), "--accept-host needs the --deployment printed by deploy-library.py"
+    if host and not re.fullmatch(re.escape(version) + "-[a-f0-9]{12}", deployment or ""):
+        raise ValueError("--accept-host needs the --deployment printed by deploy-library.py")
     retrieval_version = json.loads((release / "ready.json").read_text())["retrieval_version"]
     servers = tomllib.loads((Path.home() / ".codex/config.toml").read_text())["mcp_servers"]
     config = servers["textbooks"] if "textbooks" in servers else servers["product-advisor"]
@@ -36,7 +40,16 @@ async def verify(release, output, host=None, fixture_path=None, deployment=None)
         headers["Authorization"] = "Bearer " + os.environ[config["bearer_token_env_var"]]
     assert any(name.lower() == "authorization" for name in headers), "The configured client has no credential; no substitute key is used"
     report = {"version": version, "fixture_sha256": fixture_sha256, "endpoint": config["url"], "credential_source": "existing Codex MCP configuration", "checks": []}
-    async with httpx2.AsyncClient(headers=headers, timeout=120) as http:
+    observed = []
+
+    async def check_identity(response):
+        actual = response.headers.get("x-book-library-deployment")
+        observed.append(actual)
+        if actual != deployment:
+            raise ValueError(f"MCP deployment mismatch: expected {deployment}, received {actual!r}")
+
+    hooks = {"response": [check_identity]} if deployment else {}
+    async with httpx2.AsyncClient(headers=headers, timeout=120, event_hooks=hooks) as http:
         async with streamable_http_client(config["url"], http_client=http) as streams:
             async with ClientSession(*streams) as session:
                 initialization = await session.initialize()
@@ -107,12 +120,16 @@ async def verify(release, output, host=None, fixture_path=None, deployment=None)
                     assert bool(set(identities) & set(case["expected_chunk_ids"])) if case["expected_chunk_ids"] else not identities
                     check["passed"] = True
                     atomic_json(output, report)
+    if deployment:
+        if not observed or any(identity != deployment for identity in observed):
+            raise ValueError("Incomplete MCP deployment identity verification")
+        report["deployment"] = observed[0]
     report["passed"] = True
     atomic_json(output, report)
     if host:
-        target = "/volume1/docker/product-advisor/staging/" + deployment + "/accepted.json"
+        target = deploy_dir.rstrip("/") + "/staging/" + deployment + "/accepted.json"
         command = "umask 077; cat > " + shlex.quote(target + ".tmp") + " && mv " + shlex.quote(target + ".tmp") + " " + shlex.quote(target)
-        subprocess.run(["ssh", host, command], input=json.dumps({"version": version, "deployment": deployment, "fixture_sha256": fixture_sha256, "status": "accepted", "checks": len(report["checks"])}), text=True, check=True)
+        subprocess.run(["ssh", host, command], input=json.dumps({"version": version, "deployment": report["deployment"], "fixture_sha256": fixture_sha256, "status": "accepted", "checks": len(report["checks"])}), text=True, check=True)
     print(json.dumps({"version": version, "endpoint": config["url"], "passed": True, "checks": len(report["checks"])}))
 
 
@@ -122,6 +139,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--accept-host")
     parser.add_argument("--deployment")
+    parser.add_argument("--deploy-dir", default=DEFAULT_DEPLOY_DIR)
     parser.add_argument("--cases", type=Path)
     args = parser.parse_args()
-    asyncio.run(verify(args.release, args.output, args.accept_host, args.cases, args.deployment))
+    asyncio.run(verify(args.release, args.output, args.accept_host, args.cases, args.deployment, args.deploy_dir))

@@ -65,7 +65,7 @@ if [ ! -d "data/libraries/$VERSION" ]; then
 fi
 cp -R "$STAGE/code/mcp/." mcp/
 cp "$STAGE/code/docker-compose.yml" docker-compose.yml
-compose build product-advisor
+compose build --build-arg "BOOK_LIBRARY_DEPLOYMENT=$DEPLOYMENT" product-advisor
 printf '{"version":"%s"}\n' "$VERSION" > data/library-active.json.tmp
 mv data/library-active.json.tmp data/library-active.json
 rm -f "$STAGE/rejected.json"

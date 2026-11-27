@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 import tarfile
 import tempfile
 
@@ -84,7 +85,7 @@ print(json.dumps({'staged':d['deployment'],'verified_files':len(d['files'])}))
     print("Activation requires the NAS sudo credential in a terminal:")
     print(shlex.join(["ssh", "-t", host, command]))
     print("Within 300 seconds of startup, accept it with real MCP calls:")
-    print(shlex.join(["scripts/verify-live-library.py", str(release), "--cases", str(cases), "--output", "data/live-library-acceptance.json", "--accept-host", host, "--deployment", deployment]))
+    print(shlex.join([sys.executable, str(root / "scripts/verify-live-library.py"), str(release), "--cases", str(cases), "--output", "data/live-library-acceptance.json", "--accept-host", host, "--deploy-dir", deploy_dir, "--deployment", deployment]))
 
 
 if __name__ == "__main__":
