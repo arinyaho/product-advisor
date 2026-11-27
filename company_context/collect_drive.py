@@ -187,7 +187,7 @@ def retry_capture_errors(db):
         db.execute("CREATE TABLE IF NOT EXISTS operator_retries(at TEXT,id TEXT,previous_error TEXT)")
         selected = list(db.execute("SELECT id,reason FROM files WHERE status='failed' AND reason IN ('UnicodeEncodeError','drive_http_404')"))
         at = datetime.now(timezone.utc).isoformat()
-        db.executemany("INSERT INTO operator_retries VALUES (?,?,?)", [(at, identity, error) for identity, error in selected])
+        db.executemany("INSERT INTO operator_retries(at,id,previous_error) VALUES (?,?,?)", [(at, identity, error) for identity, error in selected])
         db.executemany("UPDATE files SET status='pending',reason=NULL WHERE id=?", [(identity,) for identity, _ in selected])
     return len(selected)
 

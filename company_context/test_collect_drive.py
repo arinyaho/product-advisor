@@ -100,11 +100,15 @@ def test_capture_handles_malformed_pdf_text_and_only_metadata_404(tmp_path):
     db.close()
 
 
-def test_operator_requeues_only_known_failures_without_rewriting_history(tmp_path):
+@pytest.mark.parametrize("legacy_audit", [False, True])
+def test_operator_requeues_only_known_failures_without_rewriting_history(tmp_path, legacy_audit):
     from company_context.collect_drive import retry_capture_errors
 
     db = open_store(tmp_path / "drive.sqlite", API.identity)
     with db:
+        if legacy_audit:
+            db.execute("CREATE TABLE operator_retries(at TEXT,kind TEXT,id TEXT,cursor TEXT,previous_error TEXT,reason TEXT)")
+            db.execute("INSERT INTO operator_retries VALUES ('before','file','historical','cursor','drive_http_404','old operator action')")
         db.executemany("INSERT INTO files(id,metadata,status,reason) VALUES (?,'{}',?,?)", [
             ("pdf", "failed", "UnicodeEncodeError"),
             ("missing", "failed", "drive_http_404"),
@@ -119,9 +123,15 @@ def test_operator_requeues_only_known_failures_without_rewriting_history(tmp_pat
         ("unknown", "failed", "drive_http_403"), ("ready", "ready", None),
         ("omitted", "omitted", "unsupported_mime_type"),
     }
-    assert set(db.execute("SELECT id,previous_error FROM operator_retries")) == {
+    expected = {
         ("pdf", "UnicodeEncodeError"), ("missing", "drive_http_404"),
     }
+    if legacy_audit:
+        expected.add(("historical", "drive_http_404"))
+        assert db.execute("SELECT * FROM operator_retries WHERE id='historical'").fetchone() == (
+            "before", "file", "historical", "cursor", "drive_http_404", "old operator action",
+        )
+    assert set(db.execute("SELECT id,previous_error FROM operator_retries")) == expected
     db.close()
 
 
