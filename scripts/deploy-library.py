@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 import tarfile
 import tempfile
 
@@ -18,6 +19,12 @@ RUNTIME = ["Dockerfile", ".dockerignore", "requirements.txt", "server.py", "advi
 def sha(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def runtime_id(inventory):
+    """Identify the staged runtime, so a code change to an accepted release is a new deployment."""
+    runtime = {name: record["sha256"] for name, record in inventory.items() if name.startswith("code/") or name == "library-host.sh"}
+    return hashlib.sha256(json.dumps(runtime, sort_keys=True).encode()).hexdigest()[:12]
 
 
 def stage(host, deploy_dir, release, evaluation, cases):
@@ -47,12 +54,13 @@ def stage(host, deploy_dir, release, evaluation, cases):
     for name, expected in ready["file_sha256"].items():
         assert sha(release / name) == expected, name
     inventory = {name: {"sha256": sha(path), "bytes": path.stat().st_size} for name, path in files.items()}
-    remote = deploy_dir.rstrip("/") + "/staging/" + version
+    deployment = version + "-" + runtime_id(inventory)
+    remote = deploy_dir.rstrip("/") + "/staging/" + deployment
     subprocess.run(["ssh", host, "umask 077; mkdir -p " + shlex.quote(remote)], check=True)
     receiver = subprocess.Popen(["ssh", host, "tar xzf - -C " + shlex.quote(remote)], stdin=subprocess.PIPE)
     with tempfile.TemporaryDirectory() as temporary:
         receipt = Path(temporary) / "inventory.json"
-        receipt.write_text(json.dumps({"version": version, "files": inventory}, indent=2))
+        receipt.write_text(json.dumps({"version": version, "deployment": deployment, "files": inventory}, indent=2))
         with tarfile.open(fileobj=receiver.stdin, mode="w|gz") as archive:
             for name, path in files.items():
                 archive.add(path, arcname=name, recursive=False)
@@ -67,13 +75,17 @@ for name,record in d['files'].items():
   h=hashlib.sha256()
   for block in iter(lambda:s.read(1024*1024),b''):h.update(block)
  assert f.stat().st_size==record['bytes'] and h.hexdigest()==record['sha256'],name
-(p/'verified.json').write_text(json.dumps({'version':d['version'],'files':len(d['files'])}))
-print(json.dumps({'staged':d['version'],'verified_files':len(d['files'])}))
+runtime={n:r['sha256'] for n,r in d['files'].items() if n.startswith('code/') or n=='library-host.sh'}
+assert d['deployment']==d['version']+'-'+hashlib.sha256(json.dumps(runtime,sort_keys=True).encode()).hexdigest()[:12],'deployment'
+(p/'verified.json').write_text(json.dumps({'version':d['version'],'deployment':d['deployment'],'files':len(d['files'])}))
+print(json.dumps({'staged':d['deployment'],'verified_files':len(d['files'])}))
 '''
     subprocess.run(["ssh", host, "python3 - " + shlex.quote(remote)], input=verifier, text=True, check=True)
-    command = "cd " + shlex.quote(deploy_dir) + " && bash staging/" + version + "/library-host.sh activate " + version
+    command = "cd " + shlex.quote(deploy_dir) + " && bash staging/" + deployment + "/library-host.sh activate " + deployment
     print("Activation requires the NAS sudo credential in a terminal:")
     print(shlex.join(["ssh", "-t", host, command]))
+    print("Within 300 seconds of startup, accept it with real MCP calls:")
+    print(shlex.join([sys.executable, str(root / "scripts/verify-live-library.py"), str(release), "--cases", str(cases), "--output", "data/live-library-acceptance.json", "--accept-host", host, "--deploy-dir", deploy_dir, "--deployment", deployment]))
 
 
 if __name__ == "__main__":

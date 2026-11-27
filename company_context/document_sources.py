@@ -24,8 +24,10 @@ def object_row(db, kind, identity):
     return json.loads(row[0]) if row else None
 
 
-def members(db, kind, identity):
-    return [json.loads(row[0]) for row in db.execute("SELECT o.payload FROM members m JOIN objects o ON o.kind=m.object_kind AND o.id=m.object_id WHERE m.task_kind=? AND m.task_id=? ORDER BY m.position,o.id", (kind, identity))]
+def members(db, kind, identity, captured=None):
+    rows = db.execute("SELECT o.payload,o.captured_at FROM members m JOIN objects o ON o.kind=m.object_kind AND o.id=m.object_id WHERE m.task_kind=? AND m.task_id=? ORDER BY m.position,o.id", (kind, identity)).fetchall()
+    if captured is not None: captured.extend(row[1] for row in rows)
+    return [json.loads(row[0]) for row in rows]
 
 
 def plain(value):
@@ -37,39 +39,64 @@ def plain(value):
 
 
 def notion_records(db, settings, finished):
-    def children(identity, visiting, dependencies):
+    tasks = {(kind, identity): bool(done) and error is None for kind, identity, done, error in db.execute("SELECT kind,id,done,error FROM tasks")}
+    properties_by_page = {}
+    for kind, identity in tasks:
+        if kind == "property": properties_by_page.setdefault(identity.split("/", 1)[0], []).append(identity)
+    def require_task(kind, identity):
+        if not tasks.get((kind, identity), False): raise IncompleteCapture("page_dependencies_incomplete")
+    def children(identity, visiting, dependencies, captured):
+        nonlocal has_body_text
         if identity in visiting:
             return ["[Cyclic synced-block reference omitted]"]
+        require_task("children", identity)
         result = []
-        for block in members(db, "children", identity):
+        if db.execute("SELECT 1 FROM omissions WHERE kind='children' AND id=? AND reason='api_unsupported_block'", (identity,)).fetchone():
+            result.append("[External page body unsupported by the Notion API]")
+        for block in members(db, "children", identity, captured):
             if block.get("object") != "block" or block.get("archived") or block.get("in_trash"): continue
             kind = block.get("type"); value = block.get(kind, {})
+            start = len(result)
             if value.get("rich_text"): result.append(plain(value["rich_text"]))
             if value.get("cells"): result.append("\t".join(plain(cell) for cell in value["cells"]))
             for key in ("title", "expression", "url"):
                 if isinstance(value.get(key), str): result.append(value[key])
             if value.get("caption"): result.append(plain(value["caption"]))
+            if any(part.strip() for part in result[start:]):
+                has_body_text = True
             if kind == "synced_block" and value.get("synced_from"):
                 original = value["synced_from"]["block_id"]
                 dependencies.add("block:" + original)
-                result.extend(children(original, visiting | {identity}, dependencies))
+                result.extend(children(original, visiting | {identity}, dependencies, captured))
             elif block.get("has_children") and kind not in ("child_page", "child_database"):
-                result.extend(children(block["id"], visiting | {identity}, dependencies))
+                result.extend(children(block["id"], visiting | {identity}, dependencies, captured))
         return result
 
     records, omissions = [], {}
     for (identity,) in db.execute("SELECT id FROM tasks WHERE kind='page' ORDER BY id"):
         page = object_row(db, "page", identity) or {}
         if page.get("archived") or page.get("in_trash"): continue
+        captured = [row[0] for row in db.execute("SELECT captured_at FROM objects WHERE kind='page' AND id=?", (identity,))]
+        dependencies = set()
+        has_body_text = False
+        try:
+            require_task("page", identity)
+            for key in properties_by_page.get(identity, []): require_task("property", key)
+            body = children(identity, set(), dependencies, captured)
+        except IncompleteCapture:
+            omissions.setdefault("page_dependencies_incomplete", []).append(identity)
+            continue
         properties = page.get("properties", {})
         title = next((plain(p.get("title", [])) for p in properties.values() if p.get("type") == "title"), "") or "Notion page " + identity
         parts = [title]
         for name, prop in properties.items():
             key = identity + "/" + prop.get("id", "")
-            values = members(db, "property", key)
+            values = members(db, "property", key, captured)
             envelopes = [v["response"].get("property_item") for v in values if v.get("object") == "response_metadata" and not v["response"].get("next_cursor")]
             items = [v for v in values if v.get("object") == "property_item"]
-            if items:
+            if db.execute("SELECT 1 FROM omissions WHERE kind='property' AND id=? AND reason='invalid_rollup_relations'", (key,)).fetchone():
+                value = "[Rollup unavailable: Notion reported invalid relations]"
+            elif items:
                 value = [{k: v for k, v in item.items() if k not in ("id", "object")} for item in items]
                 if prop.get("type") == "rollup" and envelopes and envelopes[-1]:
                     value = {"items": value, "aggregate": envelopes[-1].get("rollup")}
@@ -80,14 +107,16 @@ def notion_records(db, settings, finished):
             else:
                 value = prop
             parts.append(name + ": " + json.dumps(value, ensure_ascii=False, sort_keys=True))
-        dependencies = set()
-        parts.extend(children(identity, set(), dependencies))
+        parts.extend(body)
+        if not captured or (not page and not has_body_text):
+            omissions.setdefault("no_retained_content", []).append(identity)
+            continue
         text = "\n\n".join(part for part in parts if part)
         omission = "source_size_limit" if len(text) > 2_000_000 else "credential_pattern" if SECRET.search(text) else None
         if omission:
             omissions.setdefault(omission, []).append(identity)
             continue
-        records.append({"source_id": "notion:" + settings["workspace_id"] + ":" + identity, "source_type": "notion", "url": page.get("url") or "https://www.notion.so/" + identity.replace("-", ""), "title": title, "text": text, "author": page.get("created_by", {}).get("id"), "occurred_at": page.get("created_time"), "updated_at": page.get("last_edited_time"), "collected_at": finished, "record_kind": "source", "coverage": "Captured page properties and ordered block text; formatting normalized. Files, unsupported blocks, credential-pattern payloads and comments are excluded from indexing. Page metadata can be withheld independently of safe descendant text.", "provider_scope": {"provider": "notion", "connection": settings["connection_id"], "resource_id": identity, "dependencies": sorted(dependencies)}})
+        records.append({"source_id": "notion:" + settings["workspace_id"] + ":" + identity, "source_type": "notion", "url": page.get("url") or "https://www.notion.so/" + identity.replace("-", ""), "title": title, "text": text, "author": page.get("created_by", {}).get("id"), "occurred_at": page.get("created_time"), "updated_at": page.get("last_edited_time"), "collected_at": max(captured, default=finished), "record_kind": "source", "coverage": "Captured page properties and ordered block text; formatting normalized. Files, unsupported blocks, credential-pattern payloads and comments are excluded from indexing. Page metadata can be withheld independently of safe descendant text.", "provider_scope": {"provider": "notion", "connection": settings["connection_id"], "resource_id": identity, "dependencies": sorted(dependencies)}})
     return records, omissions
 
 
@@ -97,13 +126,20 @@ def export_capture(provider, settings, principal):
     with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
         db.execute("BEGIN")
         meta = dict(db.execute("SELECT key,value FROM metadata"))
-        if "finished_at" not in meta: raise IncompleteCapture("capture_in_progress")
+        partial = provider == "notion" and settings.get("allow_partial") is True
+        if "finished_at" not in meta and not partial: raise IncompleteCapture("capture_in_progress")
+        finished = meta.get("finished_at") or db.execute("SELECT max(captured_at) FROM objects").fetchone()[0]
         if provider == "notion":
             if meta.get("capture_schema") != "2" or meta.get("workspace_id") != settings["workspace_id"] or meta.get("connection_id") != settings["connection_id"]:
                 raise ValueError("Notion capture identity or schema differs")
-            if db.execute("SELECT count(*) FROM tasks WHERE done=0 OR error IS NOT NULL").fetchone()[0]: raise IncompleteCapture("capture_has_unfinished_tasks")
-            rows, omissions = notion_records(db, settings, meta["finished_at"])
-            coverage = {"omissions": dict(db.execute("SELECT reason,count(*) FROM omissions GROUP BY reason")), "export_omissions": omissions}
+            unfinished = db.execute("SELECT count(*) FROM tasks WHERE done=0 OR error IS NOT NULL").fetchone()[0]
+            if unfinished and not partial: raise IncompleteCapture("capture_has_unfinished_tasks")
+            if partial and not meta.get("capture_id"): raise IncompleteCapture("capture_identity_missing")
+            rows, omissions = notion_records(db, settings, finished)
+            if not rows and unfinished: raise IncompleteCapture("capture_has_no_complete_pages")
+            pending_pages = len(omissions.pop("page_dependencies_incomplete", []))
+            empty_pages = len(omissions.pop("no_retained_content", []))
+            coverage = {"capture_id": meta.get("capture_id"), "capture_complete": not unfinished, "pending_tasks": unfinished, "pending_pages": pending_pages, "empty_withheld_pages": empty_pages, "omissions": dict(db.execute("SELECT reason,count(*) FROM omissions GROUP BY reason")), "export_omissions": omissions}
         elif provider == "drive":
             if meta.get("email") != settings["email"] or meta.get("permission_id") != settings["permission_id"] or meta.get("capture_schema") != "1": raise ValueError("Drive capture identity or schema differs")
             if db.execute("SELECT count(*) FROM scopes WHERE done=0").fetchone()[0] or db.execute("SELECT count(*) FROM files WHERE status IN ('pending','failed')").fetchone()[0]: raise IncompleteCapture("capture_has_unfinished_tasks")
@@ -113,7 +149,7 @@ def export_capture(provider, settings, principal):
                 rows.append({"source_id": "drive:" + settings["permission_id"] + ":" + identity, "source_type": "docs", "url": item.get("webViewLink") or "https://drive.google.com/file/d/" + identity + "/view", "title": item.get("name") or identity, "text": text, "author": next((v.get("emailAddress") for v in item.get("owners", [])), None), "occurred_at": item.get("createdTime"), "updated_at": item.get("modifiedTime"), "collected_at": collected, "record_kind": "source", "coverage": coverage_text, "provider_scope": {"provider": "drive", "connection": settings["permission_id"], "resource_id": identity}})
             coverage = {"omissions": dict(db.execute("SELECT reason,count(*) FROM files WHERE status='omitted' GROUP BY reason"))}
         else: raise ValueError("Unknown document provider")
-        return {"principal": principal, "records": rows, "collection": {"provider": provider, "completed_at": meta["finished_at"], **coverage}}
+        return {"principal": principal, "records": rows, "collection": {"provider": provider, "completed_at": finished, **coverage}}
 
 
 def resource_identity(row, provider):
@@ -140,6 +176,8 @@ def refresh_document_access(root, settings, snapshots):
     root = Path(root)
     with (root / "document-access.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        from company_context.document_sync import snapshots_in_use
+        snapshots = [*snapshots, *snapshots_in_use(root)]
         path = root / "document-access.json"
         result = json.loads(path.read_text()) if path.exists() else {"principal": settings["principal"], "providers": {}}
         if result["principal"] != settings["principal"]: raise ValueError("Document access inventory belongs to another reader")
@@ -160,7 +198,8 @@ def refresh_document_access(root, settings, snapshots):
                     if identity.get("id") != config["connection_id"] or identity.get("bot", {}).get("workspace_id") != config["workspace_id"]:
                         revoke(); raise ValueError("Notion integration identity changed")
                     visible, cursor = set(), ""
-                    while True:
+                    # Small batches need only direct reads of their exact dependencies.
+                    while len(required) > 100:
                         page = api.request("POST", "search", json={"page_size": 100, "filter": {"value": "page", "property": "object"}, **({"start_cursor": cursor} if cursor else {})})
                         visible.update(v["id"] for v in page.get("results", []) if not v.get("archived") and not v.get("in_trash"))
                         following = page.get("next_cursor") or ""
@@ -209,6 +248,8 @@ def refresh_document_access(root, settings, snapshots):
                 finally: api.client.close()
             else: raise ValueError("Unknown document provider")
             result["providers"][provider] = {"connection": connection, "checked_at": checked, "resource_ids": sorted(visible)}
+            write_json(path, result)
+        if not path.exists():
             write_json(path, result)
         return result
 

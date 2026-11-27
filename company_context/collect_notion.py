@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sqlite3
 import time
+import uuid
 
 import httpx
 
@@ -62,8 +63,10 @@ def open_store(path, identity):
     if known and known.get("capture_schema") != "2":
         db.close()
         raise ValueError("Capture schema changed; retain the old archive and start a new database")
+    db.execute("PRAGMA journal_mode=WAL")
     with db:
         db.execute("INSERT OR IGNORE INTO metadata VALUES ('capture_schema','2')")
+        db.execute("INSERT OR IGNORE INTO metadata VALUES ('capture_id',?)", (str(uuid.uuid4()),))
         db.executemany("INSERT OR IGNORE INTO metadata VALUES (?,?)", identity.items())
         enqueue(db, "search", "all")
     return db
@@ -142,6 +145,29 @@ def status(db):
     return {"pages": db.execute("SELECT count(*) FROM objects WHERE kind='page'").fetchone()[0], "blocks": db.execute("SELECT count(*) FROM objects WHERE kind='block'").fetchone()[0], "data_sources": db.execute("SELECT count(*) FROM objects WHERE kind='data_source'").fetchone()[0], "tasks": db.execute("SELECT count(*) FROM tasks").fetchone()[0], "completed_tasks": db.execute("SELECT count(*) FROM tasks WHERE done=1").fetchone()[0], "failed_tasks": db.execute("SELECT count(*) FROM tasks WHERE error IS NOT NULL").fetchone()[0], "omissions": db.execute("SELECT count(*) FROM omissions").fetchone()[0], "model_calls": 0, "index_published": False}
 
 
+def omission_reason(kind, error):
+    if not isinstance(error, httpx.HTTPStatusError): return None
+    code = error.response.status_code
+    if kind == "comments" and code in (403, 404): return "comments_not_accessible"
+    if code != 400: return None
+    try: detail = error.response.json()
+    except ValueError: return None
+    if not isinstance(detail, dict) or detail.get("code") != "validation_error": return None
+    if kind == "children" and detail.get("message") == "Block type external_object_instance_page is not supported via the API.": return "api_unsupported_block"
+    if kind == "property" and detail.get("message") in ("Invalid relations found in rollup.", "notion://tasks/status_property is not a property that exists."): return "invalid_rollup_relations"
+    return None
+
+
+def retry_validation_errors(db):
+    # Explicit operator action: repeat only saved read requests, never model calls.
+    with db:
+        db.execute("CREATE TABLE IF NOT EXISTS operator_retries(at TEXT,kind TEXT,id TEXT,cursor TEXT,previous_error TEXT,reason TEXT)")
+        selected = db.execute("SELECT kind,id,cursor,error FROM tasks WHERE done=0 AND error='400'").fetchall()
+        db.executemany("INSERT INTO operator_retries VALUES (?,?,?,?,?,?)", [(datetime.now(timezone.utc).isoformat(), *row, "Operator requested endpoint-specific validation reclassification") for row in selected])
+        db.executemany("UPDATE tasks SET error=NULL WHERE kind=? AND id=? AND error='400'", [(row[0], row[1]) for row in selected])
+    return len(selected)
+
+
 def collect(api, db):
     if dict(db.execute("SELECT key,value FROM metadata")).get("finished_at") and not db.execute("SELECT count(*) FROM tasks WHERE done=0 OR error IS NOT NULL").fetchone()[0]:
         return status(db)
@@ -174,10 +200,11 @@ def collect(api, db):
                 db.execute("UPDATE tasks SET cursor=?,consumed=?,done=?,error=? WHERE kind=? AND id=?", (following, offset + len(items), int(not following and not truncated), "incomplete_query" if truncated and not following else None, kind, identity))
         except (httpx.HTTPError, ValueError, RuntimeError) as error:
             code = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else type(error).__name__
+            reason = omission_reason(kind, error)
             with db:
-                if kind == "comments" and code in (403, 404):
-                    db.execute("INSERT OR IGNORE INTO omissions VALUES (?,?,?)", (kind, identity, "comments_not_accessible"))
-                    db.execute("UPDATE tasks SET done=1 WHERE kind=? AND id=?", (kind, identity))
+                if reason:
+                    db.execute("INSERT OR IGNORE INTO omissions VALUES (?,?,?)", (kind, identity, reason))
+                    db.execute("UPDATE tasks SET done=1,error=NULL WHERE kind=? AND id=?", (kind, identity))
                 else:
                     db.execute("UPDATE tasks SET error=? WHERE kind=? AND id=?", (str(code), kind, identity))
         print(json.dumps(status(db)), flush=True)
@@ -194,6 +221,7 @@ def main():
     parser.add_argument("--token-file", required=True)
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--workspace-id", required=True)
+    parser.add_argument("--retry-validation-errors", action="store_true", help="Audit and requeue saved HTTP400 reads once; unknown errors remain failed")
     args = parser.parse_args()
     api = Notion(args.token_file)
     args.database.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -204,6 +232,7 @@ def main():
             raise ValueError("Notion connection is not in the authorized company workspace")
         db = open_store(args.database, {"workspace_id": args.workspace_id, "connection_id": identity["id"], "api_version": "2025-09-03"})
         try:
+            if args.retry_validation_errors: print(json.dumps({"validation_reads_requeued": retry_validation_errors(db)}), flush=True)
             result = collect(api, db)
             if result["failed_tasks"]:
                 raise SystemExit(1)
